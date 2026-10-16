@@ -1,0 +1,72 @@
+<title>Escapement Prototype</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Big+Shoulders+Display:wght@700;800&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+/*STYLE*/
+</style>
+
+<div id="app">
+  <header class="top">
+    <span class="brand">Escapement</span>
+    <span class="brand-tag">prototype · working title</span>
+    <span class="top-note">Everything runs on the grid. No program pane.</span>
+  </header>
+
+  <div class="main">
+    <aside class="panel" aria-label="Level">
+      <nav class="levels" id="levels" aria-label="Levels"></nav>
+      <section id="levelInfo"></section>
+      <section id="scoreBox"></section>
+    </aside>
+
+    <section class="stage" aria-label="Board">
+      <div class="boardWrap" id="boardWrap">
+        <canvas id="board" aria-label="Puzzle board"></canvas>
+        <div class="toast" id="toast" role="status"></div>
+      </div>
+      <div class="transport">
+        <div class="tbtns">
+          <button class="tbtn" id="bReset" aria-label="Back to the start" title="Back to the start (Home)"><svg viewBox="0 0 16 16"><path d="M8.5 3 3 8l5.5 5zM14 3 8.5 8l5.5 5z"/></svg></button>
+          <button class="tbtn" id="bBack" aria-label="Back one tick" title="Back one tick (←)"><svg viewBox="0 0 16 16"><path d="M12 3 6 8l6 5zM3 3h2v10H3z"/></svg></button>
+          <button class="tbtn play" id="bPlay" aria-label="Play" title="Play (Space)"><svg viewBox="0 0 16 16"><path id="playIcon" d="M5 3l8 5-8 5z"/></svg></button>
+          <button class="tbtn" id="bFwd" aria-label="Forward one tick" title="Forward one tick (→)"><svg viewBox="0 0 16 16"><path d="M4 3l6 5-6 5zM11 3h2v10h-2z"/></svg></button>
+        </div>
+        <input type="range" id="scrub" min="0" max="0" step="1" value="0" aria-label="Scrub through the run">
+        <div class="readout">
+          <span class="beat">Tick</span>
+          <span class="tnum" id="tnum">0</span>
+        </div>
+        <div class="speed" role="group" aria-label="Speed in ticks per second" id="speed">
+          <button data-speed="1">1×</button><button data-speed="2">2×</button><button data-speed="4">4×</button><button data-speed="8">8×</button>
+        </div>
+        <div class="resultRow">
+          <div class="tests" id="tests"></div>
+          <div class="result" id="result"></div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="panel" aria-label="Parts">
+      <section id="palette"></section>
+      <section id="inspector"></section>
+      <section>
+        <h2>Controls</h2>
+        <ul class="help">
+          <li><b>Place</b> drag a part onto the board, or pick it and click a cell</li>
+          <li><b>Move</b> drag a placed part · drop it off the board to remove it</li>
+          <li><b>Wire</b> click a sensor, then click actuators to connect them · click an empty cell to stop</li>
+          <li><b>Edit</b> click a part · <kbd>R</kbd> rotate · <kbd>Del</kbd> or right-click removes</li>
+          <li><b>Run</b> <kbd>Space</kbd> play · <kbd>←</kbd> <kbd>→</kbd> one tick · <kbd>Ctrl</kbd> <kbd>Z</kbd> undo</li>
+        </ul>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script>
+/*SIM*/
+
+/*UI*/
+</script>
