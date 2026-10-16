@@ -6,7 +6,9 @@
 
 **[Play it in your browser](https://blake8086.github.io/escapement/)**, or open `docs/index.html` locally. It's a single self-contained page with no build step needed to play.
 
-Seven levels build up from simple routing to wired logic. Each level has a "Load a solution" button with a reference machine you can watch run.
+Ten levels build up from simple routing to wired logic, ending with a checkerboard that takes real planning. Each level has two targets, cost and ticks, taken from the best machines found so far. A star in the level grid means you've hit both. If you're stuck, each level can show a working (but beatable) machine.
+
+Sound is synthesized in the page: accepted blocks chime by symbol, so a running machine plays a little tune. Press `M` to mute.
 
 ## Rules
 
@@ -23,7 +25,7 @@ Seven levels build up from simple routing to wired logic. Each level has a "Load
 - **Move:** drag a placed part. Drop it off the board to remove it.
 - **Wire:** click a sensor, then click actuators to connect them. Click an empty cell to stop.
 - **Edit:** click a part. `R` rotates, `Del` or right-click removes.
-- **Run:** `Space` plays, `←` `→` step one tick, `Ctrl+Z` undoes.
+- **Run:** `Space` plays, `←` `→` step one tick, `Ctrl+Z` undoes, `M` mutes.
 
 ## Development
 
@@ -38,7 +40,7 @@ node test.js       # runs the simulation tests
 | `src/ui.js` | Board rendering, editing, wiring, and the scrubber |
 | `src/style.css` | Styles |
 | `src/shell.html` | Page skeleton the build fills in |
-| `test.js` | Checks that every reference solution wins, naive attempts fail, and the collision rules hold |
+| `test.js` | Checks that every reference machine wins, every target is reached by a real machine, tempting wrong approaches fail, and the collision rules hold |
 | `docs/index.html` | The built, playable page, published with GitHub Pages |
 
 The simulation has no dependency on the UI, so `sim.js` runs in Node for testing. Every edit in the game re-runs the simulation from tick 0, which is what keeps the scrubber live.

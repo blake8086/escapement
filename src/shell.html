@@ -25,6 +25,18 @@
       <div class="boardWrap" id="boardWrap">
         <canvas id="board" aria-label="Puzzle board"></canvas>
         <div class="toast" id="toast" role="status"></div>
+        <div class="celebrate" id="celebrate" hidden>
+          <div class="cel-card" role="dialog" aria-labelledby="celTitle">
+            <p class="eyebrow" id="celEyebrow">Level</p>
+            <h2 class="cel-title" id="celTitle">Solved</h2>
+            <p class="cel-sub" id="celSub"></p>
+            <div class="cel-rows" id="celRows"></div>
+            <div class="cel-actions">
+              <button class="btn" id="celStay">Keep tinkering</button>
+              <button class="btn primary" id="celNext">Next level</button>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="transport">
         <div class="tbtns">
@@ -41,6 +53,13 @@
         <div class="speed" role="group" aria-label="Speed in ticks per second" id="speed">
           <button data-speed="1">1×</button><button data-speed="2">2×</button><button data-speed="4">4×</button><button data-speed="8">8×</button>
         </div>
+        <button class="tbtn" id="bMute" aria-label="Mute sound" title="Sound on (M)">
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M2 6h2.6L8 3.2v9.6L4.6 10H2z"/>
+            <g id="sndOn" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M10.3 5.8a3 3 0 0 1 0 4.4"/><path d="M12 4.2a5.4 5.4 0 0 1 0 7.6"/></g>
+            <g id="sndOff" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" hidden><path d="M10.5 6l3.5 4M14 6l-3.5 4"/></g>
+          </svg>
+        </button>
         <div class="resultRow">
           <div class="tests" id="tests"></div>
           <div class="result" id="result"></div>
@@ -58,7 +77,7 @@
           <li><b>Move</b> drag a placed part · drop it off the board to remove it</li>
           <li><b>Wire</b> click a sensor, then click actuators to connect them · click an empty cell to stop</li>
           <li><b>Edit</b> click a part · <kbd>R</kbd> rotate · <kbd>Del</kbd> or right-click removes</li>
-          <li><b>Run</b> <kbd>Space</kbd> play · <kbd>←</kbd> <kbd>→</kbd> one tick · <kbd>Ctrl</kbd> <kbd>Z</kbd> undo</li>
+          <li><b>Run</b> <kbd>Space</kbd> play · <kbd>←</kbd> <kbd>→</kbd> one tick · <kbd>Ctrl</kbd> <kbd>Z</kbd> undo · <kbd>M</kbd> sound</li>
         </ul>
       </section>
     </aside>

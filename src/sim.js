@@ -27,57 +27,73 @@ const TOOL_ORDER = ['redirect', 'gate', 'filter', 'drain', 'presence', 'kind', '
 const isSensorType = (t) => !!TILE_DEFS[t] && TILE_DEFS[t].family === 'sensor';
 const isActuatorType = (t) => !!TILE_DEFS[t] && TILE_DEFS[t].family === 'actuator';
 
-/* ---------- Levels ---------- */
+/* ---------- Levels ----------
+   Each level has a reference machine (`ref`, shown on request: a working solution,
+   not necessarily the best) and targets (`par`) for cost and ticks. The targets
+   are the best machines found so far, and may come from two different machines,
+   so meeting both at once can be harder than meeting each. test.js proves every
+   reference and target machine. */
+const R = (dir) => ({ type: 'redirect', dir });
 const LEVELS = [
   {
     id: 'first-turn', name: 'First Turn', w: 7, h: 5,
-    brief: 'Blocks slide one cell per tick until something stops them. A redirect turns blocks to face its arrow. Use redirects to bring all four blocks to the output.',
+    brief: 'Blocks slide one cell per tick until something stops them. A redirect turns any block that enters it to face its arrow. Get all four blocks to the output, then press Space to watch it run.',
     tools: ['redirect'],
     walls: [[4, 0], [4, 1], [4, 2], [4, 3]],
     emitters: [{ id: 'E1', x: 0, y: 1, dir: 'E', period: 2, seq: 'AAAA' }],
     ports: [{ id: 'O1', x: 6, y: 4, expect: 'AAAA' }],
-    ref: { tiles: { '3,1': { type: 'redirect', dir: 'S' }, '3,4': { type: 'redirect', dir: 'E' } }, links: [] },
+    par: { cost: 4, ticks: 16 },
+    ref: { tiles: { '3,1': R('S'), '3,4': R('E') }, links: [] },
   },
   {
     id: 'sorting-office', name: 'Sorting Office', w: 8, h: 6,
-    brief: 'A filter only turns blocks that carry its symbol. Send A and B to their outputs and drain every C. The same machine has to pass both tests.',
+    brief: 'A filter only turns blocks that carry its symbol. A drain swallows whatever enters it. Send A and B to their outputs and get rid of every C. One machine has to pass both tests.',
     tools: ['redirect', 'filter', 'drain'],
     emitters: [{ id: 'E1', x: 0, y: 2, dir: 'E', period: 2, seq: 'ABCABCAB' }],
     ports: [{ id: 'OA', x: 2, y: 0, expect: 'AAA' }, { id: 'OB', x: 6, y: 5, expect: 'BBB' }],
     tests: [{}, { emit: { E1: 'BACCABBA' } }],
+    par: { cost: 8, ticks: 24 },
     ref: {
       tiles: {
         '2,2': { type: 'filter', dir: 'N', sym: 'A' }, '4,2': { type: 'filter', dir: 'S', sym: 'C' },
-        '4,3': { type: 'drain' }, '6,2': { type: 'redirect', dir: 'S' },
+        '4,3': { type: 'drain' }, '6,2': R('S'),
       },
       links: [],
     },
   },
   {
+    id: 'two-rows', name: 'Two Rows', w: 8, h: 6,
+    brief: 'Blocks that reach a plate slide until they hit its far wall, then stay put. Fill the plate with the picture shown. When it matches, it clears for another round.',
+    tools: ['redirect', 'filter'],
+    emitters: [{ id: 'E1', x: 0, y: 2, dir: 'E', period: 2, seq: 'AB', cycle: true }],
+    plates: [{ id: 'P1', x: 5, y: 1, w: 3, h: 2, pattern: ['AAA', 'BBB'], need: 2 }],
+    par: { cost: 5, ticks: 28 },
+    ref: { tiles: { '3,2': { type: 'filter', dir: 'N', sym: 'A' }, '3,1': R('E') }, links: [] },
+  },
+  {
     id: 'even-split', name: 'Even Split', w: 8, h: 6,
-    brief: 'Every block looks the same, so no filter can tell them apart. Wire a sensor to a redirect: once wired, it only turns blocks while lit. Each output needs exactly three.',
+    brief: 'Every block looks the same, so no filter can tell them apart, and each output wants exactly three. To wire a sensor, click it, then click a redirect. Once wired, a redirect only turns blocks while its wire is lit.',
     tools: ['redirect', 'presence', 'clock', 'toggle'],
     emitters: [{ id: 'E1', x: 0, y: 2, dir: 'E', period: 2, seq: 'AAAAAA' }],
     ports: [{ id: 'O1', x: 4, y: 0, expect: 'AAA' }, { id: 'O2', x: 6, y: 5, expect: 'AAA' }],
+    par: { cost: 6, ticks: 20 },
     ref: {
-      tiles: {
-        '3,2': { type: 'toggle' }, '4,2': { type: 'redirect', dir: 'N' },
-        '6,2': { type: 'redirect', dir: 'S' },
-      },
+      tiles: { '3,2': { type: 'toggle' }, '4,2': R('N'), '6,2': R('S') },
       links: [{ from: '3,2', to: '4,2', path: [[3, 2], [3, 3], [4, 3], [4, 2]] }],
     },
   },
   {
     id: 'on-cue', name: 'On Cue', w: 8, h: 6,
-    brief: 'These emitters wait to be told. On each tick their wire is lit, they release one block. Interleave A and B at the output without a crash.',
+    brief: 'These emitters wait to be told. On each tick their wire is lit, they release one block. Interleave A and B at the output.',
     tools: ['redirect', 'presence', 'kind', 'clock'],
     emitters: [
       { id: 'EA', x: 2, y: 0, dir: 'S', mode: 'pull', seq: 'AAAA' },
       { id: 'EB', x: 0, y: 3, dir: 'E', mode: 'pull', seq: 'BBBB' },
     ],
     ports: [{ id: 'O1', x: 7, y: 3, expect: 'ABABABAB' }],
+    par: { cost: 6, ticks: 16 },
     ref: {
-      tiles: { '2,3': { type: 'redirect', dir: 'E' }, '5,0': { type: 'clock', k: 0 }, '2,1': { type: 'presence' } },
+      tiles: { '2,3': R('E'), '5,0': { type: 'clock', k: 0 }, '2,1': { type: 'presence' } },
       links: [
         { from: '5,0', to: '2,0', path: [[5, 0], [4, 0], [3, 0], [2, 0]] },
         { from: '2,1', to: '0,3', path: [[2, 1], [1, 1], [0, 1], [0, 2], [0, 3]] },
@@ -86,45 +102,91 @@ const LEVELS = [
   },
   {
     id: 'zipper', name: 'Zipper', w: 8, h: 6,
-    brief: 'Both emitters push on the same beat, and a detour only ever adds an even number of ticks. Hold B back at the right moment so the lanes zip together.',
+    brief: 'Both emitters fire on the same beat, and the two lanes meet at a single cell. Get them to take turns.',
     tools: ['redirect', 'gate', 'presence', 'kind', 'clock'],
     emitters: [
       { id: 'EA', x: 0, y: 3, dir: 'E', period: 2, seq: 'AAAA' },
       { id: 'EB', x: 3, y: 0, dir: 'S', period: 2, seq: 'BBBB' },
     ],
     ports: [{ id: 'O1', x: 7, y: 3, expect: 'ABABABAB' }],
+    par: { cost: 6, ticks: 15 },
     ref: {
-      tiles: { '3,3': { type: 'redirect', dir: 'E' }, '2,3': { type: 'presence' }, '3,2': { type: 'gate' } },
+      tiles: { '3,3': R('E'), '2,3': { type: 'presence' }, '3,2': { type: 'gate' } },
       links: [{ from: '2,3', to: '3,2', path: [[2, 3], [2, 2], [3, 2]] }],
     },
   },
   {
-    id: 'two-rows', name: 'Two Rows', w: 8, h: 6,
-    brief: 'Blocks on a plate pack against its far wall and stay there. When the plate is full and matches, it clears. Fill it twice.',
-    tools: ['redirect', 'filter'],
-    emitters: [{ id: 'E1', x: 0, y: 2, dir: 'E', period: 2, seq: 'AB', cycle: true }],
-    plates: [{ id: 'P1', x: 5, y: 1, w: 3, h: 2, pattern: ['AAA', 'BBB'], need: 2 }],
-    ref: { tiles: { '3,2': { type: 'filter', dir: 'N', sym: 'A' }, '3,1': { type: 'redirect', dir: 'E' } }, links: [] },
+    id: 'swap-pairs', name: 'Swap Pairs', w: 9, h: 6,
+    brief: 'Every A arrives just ahead of its B. The output wants each pair the other way around.',
+    tools: ['redirect', 'gate', 'filter', 'presence', 'kind', 'clock'],
+    emitters: [{ id: 'E1', x: 0, y: 3, dir: 'E', period: 2, seq: 'ABABABAB' }],
+    ports: [{ id: 'O1', x: 8, y: 3, expect: 'BABABABA' }],
+    par: { cost: 9, ticks: 24 },
+    ref: {
+      tiles: {
+        '2,3': { type: 'filter', dir: 'N', sym: 'A' }, '2,2': R('E'), '5,2': { type: 'gate' }, '6,2': R('S'), '6,3': R('E'),
+        '4,3': { type: 'presence' },
+      },
+      links: [{ from: '4,3', to: '5,2', path: [[4, 3], [4, 2], [5, 2]] }],
+    },
+  },
+  {
+    id: 'crossroads', name: 'Crossroads', w: 9, h: 7,
+    brief: 'Two roads cross in the middle of town, and the traffic never settles into a rhythm. Get every car home.',
+    tools: ['redirect', 'gate', 'presence', 'kind', 'clock'],
+    walls: [
+      [0, 0], [1, 0], [2, 0], [0, 1], [1, 1], [2, 1], [6, 0], [7, 0], [8, 0], [6, 1], [7, 1], [8, 1],
+      [0, 5], [1, 5], [2, 5], [0, 6], [1, 6], [2, 6], [6, 5], [7, 5], [8, 5], [6, 6], [7, 6], [8, 6],
+    ],
+    emitters: [
+      { id: 'EA', x: 0, y: 3, dir: 'E', period: 3, seq: 'AAAAAAAAAA' },
+      { id: 'EB', x: 4, y: 6, dir: 'N', period: 5, seq: 'BBBBBB' },
+    ],
+    ports: [{ id: 'OA', x: 8, y: 3, expect: 'AAAAAAAAAA' }, { id: 'OB', x: 4, y: 0, expect: 'BBBBBB' }],
+    par: { cost: 4, ticks: 36 },
+    ref: {
+      tiles: { '3,3': { type: 'presence' }, '4,4': { type: 'gate' } },
+      links: [{ from: '3,3', to: '4,4', path: [[3, 3], [3, 4], [4, 4]] }],
+    },
   },
   {
     id: 'four-ways', name: 'Four Ways', w: 9, h: 7,
-    brief: 'Eight identical blocks, four outputs, two each. A toggle only tells odd from even, so one is not enough. Chain them.',
+    brief: 'Eight identical blocks, four outputs, two each. A toggle only knows odd from even.',
     tools: ['redirect', 'gate', 'filter', 'drain', 'presence', 'kind', 'clock', 'toggle'],
     emitters: [{ id: 'E1', x: 0, y: 3, dir: 'E', period: 2, seq: 'AAAAAAAA' }],
     ports: [
       { id: 'O1', x: 3, y: 0, expect: 'AA' }, { id: 'O2', x: 0, y: 1, expect: 'AA' },
       { id: 'O3', x: 8, y: 3, expect: 'AA' }, { id: 'O4', x: 5, y: 6, expect: 'AA' },
     ],
+    par: { cost: 10, ticks: 23 },
     ref: {
       tiles: {
-        '2,3': { type: 'toggle' }, '3,3': { type: 'redirect', dir: 'N' },
-        '3,2': { type: 'toggle' }, '3,1': { type: 'redirect', dir: 'W' },
-        '4,3': { type: 'toggle' }, '5,3': { type: 'redirect', dir: 'S' },
+        '2,3': { type: 'toggle' }, '3,3': R('N'),
+        '3,2': { type: 'toggle' }, '3,1': R('W'),
+        '4,3': { type: 'toggle' }, '5,3': R('S'),
       },
       links: [
         { from: '2,3', to: '3,3', path: [[2, 3], [2, 4], [3, 4], [3, 3]] },
         { from: '3,2', to: '3,1', path: [[3, 2], [4, 2], [4, 1], [3, 1]] },
         { from: '4,3', to: '5,3', path: [[4, 3], [4, 4], [5, 4], [5, 3]] },
+      ],
+    },
+  },
+  {
+    id: 'checkerboard', name: 'Checkerboard', w: 9, h: 7,
+    brief: 'Columns fill from the bottom up. Lay the checkerboard twice. This one takes some planning.',
+    tools: ['redirect', 'gate', 'filter', 'drain', 'presence', 'kind', 'clock', 'toggle'],
+    emitters: [{ id: 'E1', x: 0, y: 1, dir: 'E', period: 2, seq: 'AB', cycle: true }],
+    plates: [{ id: 'P1', x: 6, y: 5, w: 2, h: 2, pattern: ['AB', 'BA'], need: 2 }],
+    par: { cost: 19, ticks: 26 },
+    ref: {
+      tiles: {
+        '2,1': { type: 'filter', dir: 'S', sym: 'A' }, '2,2': { type: 'toggle' }, '2,3': R('E'), '2,4': R('E'),
+        '5,4': R('E'), '6,4': R('S'), '7,3': R('S'), '4,1': { type: 'toggle' }, '5,1': R('S'), '7,1': R('S'),
+      },
+      links: [
+        { from: '2,2', to: '2,3', path: [[2, 2], [1, 2], [1, 3], [2, 3]] },
+        { from: '4,1', to: '5,1', path: [[4, 1], [4, 0], [5, 0], [5, 1]] },
       ],
     },
   },

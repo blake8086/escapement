@@ -41,6 +41,68 @@
     set(k, v) { try { localStorage.setItem(PREFIX + k, JSON.stringify(v)); } catch (e) { /* storage unavailable */ } },
   };
 
+  /* ---------- Sound: everything is synthesized, nothing to load ----------
+     Accepted blocks chime on a pentatonic scale by symbol, so a running
+     machine plays a little tune. Actuators click, drains bloop, crashes thud. */
+  const Sound = (() => {
+    let ac = null, master = null, muted = !!store.get('muted', false);
+    const SCALE = [523.25, 659.25, 783.99, 880.0, 1046.5, 1174.66, 1318.51];
+    function ensure() {
+      if (muted) return null;
+      if (!ac) {
+        try {
+          const AC = window.AudioContext || window.webkitAudioContext;
+          if (!AC) return null;
+          ac = new AC();
+          master = ac.createGain();
+          master.gain.value = 0.22;
+          master.connect(ac.destination);
+        } catch (e) { ac = null; return null; }
+      }
+      if (ac.state === 'suspended') ac.resume().catch(() => {});
+      return ac;
+    }
+    function tone(freq, o) {
+      if (!ensure()) return;
+      const { type = 'triangle', dur = 0.25, vol = 0.5, when = 0, glide = 0 } = o || {};
+      const t0 = ac.currentTime + when, osc = ac.createOscillator(), g = ac.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, t0);
+      if (glide) osc.frequency.exponentialRampToValueAtTime(glide, t0 + dur);
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(vol, t0 + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      osc.connect(g); g.connect(master);
+      osc.start(t0); osc.stop(t0 + dur + 0.03);
+    }
+    function noise(dur, vol, freq) {
+      if (!ensure()) return;
+      const n = Math.max(1, Math.floor(ac.sampleRate * dur)), buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+      const src = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+      src.buffer = buf; f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = 1.1; g.gain.value = vol;
+      src.connect(f); f.connect(g); g.connect(master);
+      src.start();
+    }
+    return {
+      get muted() { return muted; },
+      setMuted(m) {
+        muted = m;
+        store.set('muted', m);
+        if (ac) (m ? ac.suspend() : ac.resume()).catch(() => {});
+      },
+      unlock() { ensure(); },
+      note(i) { tone(SCALE[Math.max(0, i) % SCALE.length], { dur: 0.4, vol: 0.42 }); },
+      tick() { tone(2300, { type: 'sine', dur: 0.025, vol: 0.05 }); },
+      click() { noise(0.022, 0.3, 3400); },
+      drain() { tone(330, { type: 'sine', dur: 0.2, vol: 0.22, glide: 110 }); },
+      crash() { noise(0.35, 0.9, 380); tone(92, { type: 'sine', dur: 0.45, vol: 0.6, glide: 44 }); },
+      fail() { tone(196, { type: 'sawtooth', dur: 0.28, vol: 0.1 }); tone(185, { type: 'sawtooth', dur: 0.32, vol: 0.1, when: 0.03 }); },
+      chord(idx) { idx.forEach((i, n) => tone(SCALE[Math.max(0, i) % SCALE.length] / 2, { dur: 0.7, vol: 0.22, when: n * 0.035 })); },
+      win() { [0, 1, 2, 4].forEach((i, n) => tone(SCALE[i], { dur: 0.55, vol: 0.38, when: n * 0.09 })); },
+    };
+  })();
+
   /* ---------- State ---------- */
   const S = {
     levelIdx: 0, sols: {}, history: {},
@@ -107,10 +169,13 @@
     const L = level();
     S.results = levelTests(L).map((_, i) => simulate(L, i, sol()));
     S.pos = Math.min(S.pos, lastIdx());
+    S.improved = null;
     if (S.results.every((r) => r.result.status === 'win')) {
       const cost = solutionCost(sol());
       const ticks = Math.max(...S.results.map((r) => r.result.t));
       const best = store.get('best.' + L.id, null);
+      // Remember whether this machine set a personal best, for the solve card.
+      S.improved = { cost: !best || cost < best.cost, ticks: !best || ticks < best.ticks };
       store.set('best.' + L.id, best ? { cost: Math.min(best.cost, cost), ticks: Math.min(best.ticks, ticks) } : { cost, ticks });
     }
     S.lastFrame = -1;
@@ -129,6 +194,7 @@
     });
   }
   function edit(fn) {
+    hideCelebration();
     const id = level().id;
     (S.history[id] = S.history[id] || []).push(JSON.stringify(sol()));
     if (S.history[id].length > 200) S.history[id].shift();
@@ -156,6 +222,7 @@
     S.testIdx = 0; S.pos = 0; S.playing = false; S.sel = null; S.tool = null; S.drag = null; S.wireFrom = null;
     S.results = [];
     compCache = {};
+    hideCelebration();
     const L = level();
     if (!S.sols[L.id]) S.sols[L.id] = sanitizeSol(store.get('sol.' + L.id, null));
     store.set('level', i);
@@ -397,7 +464,20 @@
       A.blocks.forEach((b) => blocks.push({ ...b, alpha: 1 }));
     }
     const mark = f > 0.5 ? B : A;
-    return { A, B, f, E, pulse, blocks, mark };
+    // Rings that bloom from ports (and shrink into drains) just after a block is taken.
+    const pops = f > 0 && A.beat === 'tick' && !A.crash && !REDUCED ? (A.gone || []).map((g) => ({ ...g, p: f })) : [];
+    return { A, B, f, E, pulse, blocks, mark, pops };
+  }
+  function drawPop(g) {
+    const s = geo.s, cx = cxOf(g.x), cy = cyOf(g.y), p = g.p;
+    ctx.save();
+    ctx.globalAlpha = (1 - p) * 0.9;
+    ctx.lineWidth = Math.max(1.5, s * 0.07 * (1 - p));
+    ctx.strokeStyle = g.how === 'port' ? symColor(g.sym) : COL.steelInk;
+    ctx.beginPath();
+    ctx.arc(cx, cy, s * (g.how === 'port' ? 0.26 + 0.38 * p : 0.34 - 0.24 * p), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
   }
 
   function tileState(k, t, E, wired) {
@@ -677,6 +757,7 @@
     }
 
     V.blocks.forEach((b) => drawBlock(ctx, b, cxOf(b.x), cyOf(b.y), s, b.alpha, b.outline));
+    V.pops.forEach(drawPop);
 
     const M = V.mark;
     if (M.crash) M.crash.cells.forEach(drawCrashMark);
@@ -964,10 +1045,49 @@
   function stepBy(d) {
     S.playing = false;
     syncPlay();
-    if (d > 0) setPos(Math.min(lastIdx(), Math.floor(S.pos / 2 + 1e-9) * 2 + 2));
-    else setPos(Math.max(0, Math.ceil(S.pos / 2 - 1e-9) * 2 - 2));
+    if (d > 0) {
+      const before = Math.floor(S.pos + 1e-9);
+      setPos(Math.min(lastIdx(), Math.floor(S.pos / 2 + 1e-9) * 2 + 2));
+      crossFrames(before, Math.floor(S.pos + 1e-9));
+    } else setPos(Math.max(0, Math.ceil(S.pos / 2 - 1e-9) * 2 - 2));
   }
+
+  /* Sounds and the solve card fire as playback (or stepping) moves through frames,
+     never while scrubbing, so the payoff arrives when you watch the machine work. */
+  function frameSounds(i) {
+    const fr = frames(), F = fr[i];
+    if (!F) return;
+    const syms = levelSymbols(level());
+    if (F.beat === 'tick') {
+      if (S.speed <= 2) Sound.tick();
+      if (F.crash) {
+        Sound.crash();
+        if (!REDUCED) { wrap.classList.remove('shake'); void wrap.offsetWidth; wrap.classList.add('shake'); }
+        return;
+      }
+      (F.gone || []).forEach((g) => (g.how === 'port' ? Sound.note(syms.indexOf(g.sym)) : Sound.drain()));
+      if (F.fail) Sound.fail();
+    } else {
+      const P = fr[i - 1];
+      if (P && Object.keys(F.act).some((k) => !!F.act[k] !== !!P.act[k])) Sound.click();
+      if (F.cleared && F.cleared.length) Sound.chord([...new Set(F.cleared.map((b) => syms.indexOf(b.sym)))]);
+      if (F.fail) Sound.fail();
+    }
+  }
+  function crossFrames(from, to) {
+    for (let i = from + 1; i <= to; i++) frameSounds(i);
+    if (to > from && to === lastIdx()) reachedEnd();
+  }
+  function reachedEnd() {
+    if (cur().result.status !== 'win') return;
+    Sound.win();
+    const others = S.results.map((r, i) => ({ r, i })).filter((x) => x.r.result.status !== 'win');
+    if (!others.length) showCelebration();
+    else toast(`This test passes. Test ${others[0].i + 1} still fails.`);
+  }
+
   function togglePlay() {
+    hideCelebration();
     if (S.playing) S.playing = false;
     else {
       if (S.pos >= lastIdx()) S.pos = 0;
@@ -983,8 +1103,10 @@
     if (lastT == null) lastT = now;
     const dt = Math.min(0.1, Math.max(0, (now - lastT) / 1000));
     lastT = now;
+    const before = Math.floor(S.pos + 1e-9);
     S.pos = Math.max(0, S.pos + dt * S.speed * 2);
     if (S.pos >= lastIdx()) { S.pos = lastIdx(); S.playing = false; syncPlay(); }
+    crossFrames(before, Math.min(lastIdx(), Math.floor(S.pos + 1e-9)));
     updateLive();
     draw();
     if (S.playing) requestAnimationFrame(loop);
@@ -1055,19 +1177,30 @@
     else if (e.key === 'End') { e.preventDefault(); S.playing = false; syncPlay(); setPos(lastIdx()); }
     else if (e.key === 'r' || e.key === 'R') rotate(e.shiftKey ? -1 : 1);
     else if (e.key === 'Delete' || e.key === 'Backspace') { if (S.sel) { e.preventDefault(); removeTileAt(S.sel); } }
-    else if (e.key === 'Escape') { S.tool = null; S.sel = null; S.wireFrom = null; syncPalette(); renderInspector(); draw(); }
+    else if (e.key === 'm' || e.key === 'M') toggleMute();
+    else if (e.key === 'Escape') { hideCelebration(); S.tool = null; S.sel = null; S.wireFrom = null; syncPalette(); renderInspector(); draw(); }
     else if (/^[1-9]$/.test(e.key)) { const t = S.toolKeys[+e.key - 1]; if (t) selectTool(t); }
   });
 
   /* ---------- Panels ---------- */
   const chip = (c, extra) => `<span class="chip${extra ? ' ' + extra : ''}" style="background:${symColor(c)}">${esc(c)}</span>`;
   const CHECK = '<svg class="lvl-done" viewBox="0 0 16 16" aria-label="Solved"><path d="M3 8.5 6.5 12 13 4.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const STAR = '<svg class="lvl-star" viewBox="0 0 16 16" aria-label="Both targets hit"><path d="M8 1.6l1.95 4 4.4.62-3.18 3.1.75 4.38L8 11.64l-3.92 2.06.75-4.38-3.18-3.1 4.4-.62z" fill="currentColor"/></svg>';
+  const hitBoth = (L, best) => !!best && best.cost <= L.par.cost && best.ticks <= L.par.ticks;
+  // Parts a level introduces: in its tools but in no earlier level's.
+  function newPartsFor(i) {
+    const seen = new Set();
+    LEVELS.slice(0, i).forEach((L) => L.tools.forEach((t) => seen.add(t)));
+    return TOOL_ORDER.filter((t) => LEVELS[i].tools.includes(t) && !seen.has(t));
+  }
 
   function renderLevels() {
     const el = $('#levels');
     el.innerHTML = LEVELS.map((L, i) => {
-      const solved = !!store.get('best.' + L.id, null);
-      return `<button class="lvl" data-i="${i}" aria-current="${i === S.levelIdx}"><span class="lvl-n">${String(i + 1).padStart(2, '0')}</span><span>${esc(L.name)}</span>${solved ? CHECK : '<span></span>'}</button>`;
+      const best = store.get('best.' + L.id, null), both = hitBoth(L, best);
+      const mark = best ? (both ? STAR : CHECK) : '';
+      const status = best ? (both ? ', both targets hit' : ', solved') : '';
+      return `<button class="lvl" data-i="${i}" title="${esc(L.name)}" aria-label="Level ${i + 1}: ${esc(L.name)}${status}" aria-current="${i === S.levelIdx}">${String(i + 1).padStart(2, '0')}${mark}</button>`;
     }).join('');
     el.querySelectorAll('.lvl').forEach((b) => { b.onclick = () => { if (+b.dataset.i !== S.levelIdx) loadLevel(+b.dataset.i); }; });
   }
@@ -1091,6 +1224,7 @@
       <p class="eyebrow">Level ${S.levelIdx + 1} of ${LEVELS.length}</p>
       <h1>${esc(L.name)}</h1>
       <p class="brief-text">${esc(L.brief)}</p>
+      ${(() => { const np = newPartsFor(S.levelIdx); return np.length ? `<p class="newparts">New: ${np.map((t) => TILE_DEFS[t].name).join(', ')}</p>` : ''; })()}
       <div style="height:16px"></div>
       <h2>Inputs</h2>
       ${C.emitters.map((e, i) => `
@@ -1111,23 +1245,77 @@
     const ticks = allWin ? Math.max(...S.results.map((r) => r.result.t)) : null;
     const best = store.get('best.' + L.id, null);
     const hasHist = (S.history[L.id] || []).length > 0;
+    const okC = !!best && best.cost <= L.par.cost, okT = !!best && best.ticks <= L.par.ticks;
+    const tick = '<svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M3 8.5 6.5 12 13 4.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     $('#scoreBox').innerHTML = `
       <h2>This machine</h2>
       <div class="score">
         <div class="stat"><span class="stat-k">Cost</span><span class="stat-v">${cost}</span></div>
         <div class="stat"><span class="stat-k">Ticks</span><span class="stat-v">${ticks == null ? '—' : ticks}</span></div>
-        <div class="best">${best ? `Best so far: cost ${best.cost} · ${best.ticks} ticks` : 'Not solved yet'}</div>
       </div>
+      <div class="targets" title="The best machines found so far. Cost and ticks may come from different machines.">
+        <span class="tlabel">Targets</span>
+        <span class="pill${okC ? ' ok' : ''}">${okC ? tick : ''}Cost ${L.par.cost}</span>
+        <span class="pill${okT ? ' ok' : ''}">${okT ? tick : ''}${L.par.ticks} ticks</span>
+      </div>
+      <div class="best">${best ? `Your best: cost ${best.cost} · ${best.ticks} ticks` : 'Not solved yet'}</div>
       <div style="height:12px"></div>
       <div class="actions">
         <button class="btn" id="bUndo" ${hasHist ? '' : 'disabled'}>Undo</button>
         <button class="btn danger" id="bClear" ${Object.keys(sol().tiles).length ? '' : 'disabled'}>Clear board</button>
-        <button class="btn quiet" id="bRef">Load a solution</button>
-      </div>`;
+      </div>
+      <button class="linkbtn quiet" id="bRef">Stuck? Show a working machine</button>`;
     $('#bUndo').onclick = undo;
     $('#bClear').onclick = () => { edit((s) => { s.tiles = {}; s.links = []; }); S.sel = null; renderInspector(); toast('Board cleared. Undo brings it back.'); };
-    $('#bRef').onclick = () => { edit((s) => { const r = JSON.parse(JSON.stringify(L.ref)); s.tiles = r.tiles; s.links = r.links; }); S.sel = null; renderInspector(); toast('Loaded a reference solution. Press Space to run it.'); };
+    $('#bRef').onclick = () => { edit((s) => { const r = JSON.parse(JSON.stringify(L.ref)); s.tiles = r.tiles; s.links = r.links; }); S.sel = null; renderInspector(); toast('Loaded a working machine. It isn’t the best one. Undo brings yours back.'); };
   }
+
+  /* ---------- Solve card ---------- */
+  function hideCelebration() { const el = document.getElementById('celebrate'); if (el) el.hidden = true; }
+  function showCelebration() {
+    const L = level(), i = S.levelIdx, cost = solutionCost(sol());
+    const ticks = Math.max(...S.results.map((r) => r.result.t));
+    const best = store.get('best.' + L.id, null) || { cost, ticks };
+    const imp = S.improved || {};
+    const okC = best.cost <= L.par.cost, okT = best.ticks <= L.par.ticks;
+    const row = (k, v, target, isNew) => {
+      const met = v <= target;
+      const note = met ? (v < target ? `beats the target of ${target}` : 'hits the target') : `target is ${target}`;
+      return `<div class="cel-row"><span class="cel-k">${k}</span><span class="cel-v">${v}</span><span class="cel-t${met ? ' ok' : ''}">${note}</span>${isNew ? '<span class="cel-new">New best</span>' : '<span></span>'}</div>`;
+    };
+    const sub = okC && okT ? 'You’ve hit both targets on this level.'
+      : okC || okT ? `${okC ? 'Cost' : 'Tick'} target hit. The ${okC ? 'tick' : 'cost'} target is still open.`
+        : 'It works. The targets show what’s possible.';
+    const next = LEVELS[i + 1];
+    $('#celEyebrow').textContent = `Level ${i + 1} · ${L.name}`;
+    $('#celSub').textContent = next ? sub : `${sub} That’s every level.`;
+    $('#celRows').innerHTML = row('Cost', cost, L.par.cost, imp.cost) + row('Ticks', ticks, L.par.ticks, imp.ticks);
+    const nb = $('#celNext');
+    nb.hidden = !next;
+    if (next) nb.textContent = `Next: ${next.name}`;
+    $('#celebrate').hidden = false;
+    (next ? nb : $('#celStay')).focus({ preventScroll: true });
+  }
+  $('#celStay').onclick = hideCelebration;
+  $('#celNext').onclick = () => { if (LEVELS[S.levelIdx + 1]) loadLevel(S.levelIdx + 1); };
+  $('#celebrate').addEventListener('click', (e) => { if (e.target.id === 'celebrate') hideCelebration(); });
+
+  function toggleMute() {
+    Sound.setMuted(!Sound.muted);
+    syncMute();
+    if (!Sound.muted) Sound.click();
+  }
+  function syncMute() {
+    $('#sndOn').toggleAttribute('hidden', Sound.muted);
+    $('#sndOff').toggleAttribute('hidden', !Sound.muted);
+    const b = $('#bMute');
+    b.setAttribute('aria-label', Sound.muted ? 'Turn sound on' : 'Mute sound');
+    b.title = Sound.muted ? 'Sound off (M)' : 'Sound on (M)';
+  }
+  $('#bMute').onclick = toggleMute;
+  // Browsers only allow audio after a gesture, so the first press anywhere wakes it.
+  document.addEventListener('pointerdown', () => Sound.unlock());
+  document.addEventListener('keydown', () => Sound.unlock());
 
   function renderResult() {
     const tests = S.results;
@@ -1165,12 +1353,13 @@
     const groups = [['actuator', 'Actuators'], ['static', 'Static tiles'], ['sensor', 'Sensors']];
     S.toolKeys = [];
     let n = 0;
+    const fresh = new Set(newPartsFor(S.levelIdx));
     el.innerHTML = '<h2>Parts</h2>' + groups.map(([fam, label]) => {
       const ts = TOOL_ORDER.filter((t) => L.tools.includes(t) && TILE_DEFS[t].family === fam);
       if (!ts.length) return '';
       return `<div class="pgroup"><h3>${label}</h3><div class="pgrid">${ts.map((t) => {
         n++; S.toolKeys.push(t);
-        return `<button class="part" data-tool="${t}" aria-pressed="false" title="${esc(TILE_DEFS[t].desc)} Cost ${TILE_DEFS[t].cost}."><canvas></canvas><span class="pname">${TILE_DEFS[t].name}</span><span class="pkey">${n}</span></button>`;
+        return `<button class="part" data-tool="${t}" aria-pressed="false" title="${esc(TILE_DEFS[t].desc)} Cost ${TILE_DEFS[t].cost}."><canvas></canvas><span class="pname">${TILE_DEFS[t].name}</span><span class="pkey">${n}</span>${fresh.has(t) ? '<span class="pnew">New</span>' : ''}</button>`;
       }).join('')}</div></div>`;
     }).join('');
     el.querySelectorAll('.part').forEach((b) => {
@@ -1259,6 +1448,7 @@
     if (data && data.sols) for (const id in data.sols) S.sols[id] = sanitizeSol(data.sols[id]);
     const saved = data && Number.isInteger(data.levelIdx) ? data.levelIdx : store.get('level', 0);
     syncSpeed();
+    syncMute();
     new ResizeObserver(() => fit()).observe(wrap);
     loadLevel(Math.min(Math.max(0, saved | 0), LEVELS.length - 1));
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { renderPalette(); renderInspector(); draw(); });

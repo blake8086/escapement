@@ -20,8 +20,45 @@ for (const L of S.LEVELS) {
   console.log('      ', empty.result.msg);
 }
 
-// Naive attempts the levels are meant to reject.
 const byId = (id) => S.LEVELS.find((l) => l.id === id);
+const R = (dir) => ({ type: 'redirect', dir });
+const runAll = (L, sol) => {
+  const rs = S.levelTests(L).map((_, i) => S.simulate(L, i, sol).result);
+  const win = rs.every((r) => r.status === 'win');
+  return { win, cost: S.solutionCost(sol), ticks: win ? Math.max(...rs.map((r) => r.t)) : null, msg: rs.find((r) => r.status !== 'win')?.msg };
+};
+const noWin = (label, L, sol) => {
+  const r = runAll(L, sol);
+  expect(label, r.win ? 'win' : 'no-win', 'no-win');
+  console.log('      ', r.msg);
+};
+
+// Targets: the best machines found. Each level's par cost and par ticks must be
+// reached by a real machine here (the reference counts), and none may beat them.
+const BEST = {
+  'sorting-office': [{ tiles: { '2,2': { type: 'filter', dir: 'N', sym: 'A' }, '6,2': { type: 'filter', dir: 'S', sym: 'B' }, '7,2': { type: 'drain' } }, links: [] }],
+  'swap-pairs': [{ tiles: { '2,3': { type: 'filter', dir: 'N', sym: 'A' }, '2,1': R('E'), '6,1': R('S'), '6,3': R('E') }, links: [] }],
+  'four-ways': [{
+    tiles: { '2,3': { type: 'toggle' }, '3,3': R('N'), '3,2': { type: 'toggle' }, '3,1': R('W'), '5,3': R('S') },
+    links: [{ from: '2,3', to: '3,3' }, { from: '3,2', to: '3,1' }, { from: '3,2', to: '5,3' }],
+  }],
+  'checkerboard': [{
+    tiles: {
+      '2,1': { type: 'filter', dir: 'S', sym: 'A' }, '2,2': { type: 'toggle' }, '2,3': R('E'), '2,4': R('E'),
+      '5,4': R('E'), '6,4': R('S'), '7,3': R('S'), '5,1': R('S'), '7,1': R('S'),
+    },
+    links: [{ from: '2,2', to: '2,3' }, { from: '2,2', to: '5,1' }],
+  }],
+};
+for (const L of S.LEVELS) {
+  const results = [L.ref].concat(BEST[L.id] || []).map((sol) => runAll(L, sol));
+  results.forEach((r, i) => { if (!r.win) { failures++; console.log(`FAIL ${L.id} machine ${i} does not win: ${r.msg}`); } });
+  const wins = results.filter((r) => r.win);
+  expect(`${L.id} par cost reached`, Math.min(...wins.map((r) => r.cost)), L.par.cost);
+  expect(`${L.id} par ticks reached`, Math.min(...wins.map((r) => r.ticks)), L.par.ticks);
+}
+
+// Naive attempts the levels are meant to reject.
 {
   const L = byId('zipper');
   const r = S.simulate(L, 0, { tiles: { '3,3': { type: 'redirect', dir: 'E' } }, links: [] });
@@ -41,6 +78,33 @@ const byId = (id) => S.LEVELS.find((l) => l.id === id);
   });
   expect('on-cue one clock on both emitters fails', r.result.status === 'win' ? 'win' : 'no-win', 'no-win');
   console.log('      ', r.result.msg);
+}
+{
+  // Zipper: the delay B needs is odd, so a detour (always even) can't fix it.
+  const L = byId('zipper');
+  noWin('zipper with B detouring two cells', L, { tiles: { '3,1': R('E'), '4,1': R('S'), '4,2': R('W'), '3,2': R('S'), '3,3': R('E') }, links: [] });
+}
+{
+  // Swap Pairs: only a siding exactly two cells longer than the short one works without wiring.
+  const L = byId('swap-pairs');
+  const siding = (row) => ({ tiles: { '2,3': { type: 'filter', dir: 'N', sym: 'A' }, [`2,${row}`]: R('E'), [`6,${row}`]: R('S'), '6,3': R('E') }, links: [] });
+  noWin('swap-pairs short siding', L, siding(2));
+  noWin('swap-pairs longest siding', L, siding(0));
+}
+{
+  // Crossroads: both streams have odd periods, so no clock or detour separates them.
+  const L = byId('crossroads');
+  for (const k of [0, 1]) {
+    noWin(`crossroads clock (${k}) gating B`, L, { tiles: { '5,2': { type: 'clock', k }, '4,4': { type: 'gate' } }, links: [{ from: '5,2', to: '4,4' }] });
+    noWin(`crossroads clock (${k}) gating A`, L, { tiles: { '5,2': { type: 'clock', k }, '3,3': { type: 'gate' } }, links: [{ from: '5,2', to: '3,3' }] });
+  }
+  const r = runAll(L, { tiles: { '4,4': { type: 'presence' }, '3,3': { type: 'gate' } }, links: [{ from: '4,4', to: '3,3' }] });
+  expect('crossroads gating A instead also works', r.win, true);
+}
+{
+  // Checkerboard: sending each symbol to a fixed column fails.
+  const L = byId('checkerboard');
+  noWin('checkerboard fixed columns', L, { tiles: { '2,1': { type: 'filter', dir: 'S', sym: 'A' }, '2,3': R('E'), '7,3': R('S'), '6,1': R('S') }, links: [] });
 }
 
 // Collision rules on bare test boards.
