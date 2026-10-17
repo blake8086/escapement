@@ -6,7 +6,7 @@
 
 **[Play it in your browser](https://blake8086.github.io/escapement/)**, or open `docs/index.html` locally. It's a single self-contained page with no build step needed to play.
 
-Ten levels build up from simple routing to wired logic, ending with a checkerboard that takes real planning. Each level has two targets, cost and ticks, taken from the best machines found so far. A star in the level grid means you've hit both. If you're stuck, each level can show a working (but beatable) machine.
+The **Workshop** levels are an experiment in construction: only the output is fixed. You place the sources (so all timing is your own) and use joins to fuse ingredients into products, scored on cost, ticks, and area. The ten **Routing** levels build up from simple routing to wired logic, ending with a checkerboard that takes real planning. Each level has two targets, cost and ticks, taken from the best machines found so far. A star in the level grid means you've hit both. If you're stuck, each level can show a working (but beatable) machine.
 
 Sound is synthesized in the page: accepted blocks chime by symbol, so a running machine plays a little tune. Press `M` to mute.
 
@@ -30,7 +30,7 @@ Sound is synthesized in the page: accepted blocks chime by symbol, so a running 
 ## Development
 
 ```
-python3 build.py   # bundles src/ into docs/index.html
+python3 build.py   # bundles src/ into docs/index.html (and build/fragment.html for the artifact viewer)
 node test.js       # runs the simulation tests
 ```
 

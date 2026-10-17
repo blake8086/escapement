@@ -13,6 +13,8 @@ const key = (x, y) => x + ',' + y;
 const unkey = (k) => k.split(',').map(Number);
 
 const TILE_DEFS = {
+  source:   { family: 'actuator', name: 'Source',   cost: 6, desc: 'Releases a block of its symbol each tick its exit is clear. Once wired, it only releases while lit. A blocked source waits; it never crashes.' },
+  join:     { family: 'static',   name: 'Join',     cost: 3, desc: 'Two blocks entering on the same tick that match its recipe fuse into the product, which leaves along its arrow. A lone block passes straight through untouched.' },
   filter:   { family: 'static',   name: 'Filter',   cost: 3, desc: 'Blocks with this symbol take this heading. Others pass straight through.' },
   drain:    { family: 'static',   name: 'Drain',    cost: 2, desc: 'Removes any block that enters.' },
   presence: { family: 'sensor',   name: 'Presence', cost: 2, desc: 'On while any block sits on it.' },
@@ -23,7 +25,7 @@ const TILE_DEFS = {
   gate:     { family: 'actuator', name: 'Gate',     cost: 2, desc: 'The block on it cannot leave. Once wired, it only holds while lit.' },
 };
 // Actuators with no wire are always on: an unwired redirect is a plain turn, an unwired gate a stop.
-const TOOL_ORDER = ['redirect', 'gate', 'filter', 'drain', 'presence', 'kind', 'clock', 'toggle'];
+const TOOL_ORDER = ['source', 'redirect', 'gate', 'join', 'filter', 'drain', 'presence', 'kind', 'clock', 'toggle'];
 const isSensorType = (t) => !!TILE_DEFS[t] && TILE_DEFS[t].family === 'sensor';
 const isActuatorType = (t) => !!TILE_DEFS[t] && TILE_DEFS[t].family === 'actuator';
 
@@ -190,6 +192,53 @@ const LEVELS = [
       ],
     },
   },
+
+  /* ---------- Workshop: construction levels (experiment) ----------
+     Nothing is placed for you except the output. You place the sources, so all
+     timing is your own, and joins turn ingredients into products. Area (open
+     cells the machine uses) is a third score. */
+  {
+    id: 'first-join', name: 'First Join', group: 'Workshop', w: 12, h: 8,
+    brief: 'Nothing is placed for you this time. Put down sources wherever you like, then send an A and a B into a join on the same tick to make a C. The output wants six.',
+    tools: ['source', 'join', 'redirect'],
+    sources: ['A', 'B'], recipes: [['A', 'B', 'C']],
+    walls: [[8, 2], [9, 2], [10, 2], [8, 4], [9, 4], [10, 4]],
+    ports: [{ id: 'O1', x: 11, y: 3, expect: 'CCCCCC' }],
+    par: { cost: 15, ticks: 11, area: 6 },
+    ref: { tiles: { '7,3': { type: 'join', out: 'C', dir: 'E' }, '6,3': { type: 'source', sym: 'A', dir: 'E' }, '7,2': { type: 'source', sym: 'B', dir: 'S' } }, links: [] },
+  },
+  {
+    id: 'double-up', name: 'Double Up', group: 'Workshop', w: 14, h: 9,
+    brief: 'A D takes two Cs arriving together. Sources are expensive.',
+    tools: ['source', 'join', 'redirect', 'gate', 'filter', 'drain', 'presence', 'kind', 'toggle'],
+    sources: ['A', 'B'], recipes: [['A', 'B', 'C'], ['C', 'C', 'D']],
+    ports: [{ id: 'O1', x: 13, y: 4, expect: 'DDDD' }],
+    par: { cost: 30, ticks: 7, area: 7 },
+    ref: {
+      tiles: {
+        '12,4': { type: 'join', out: 'D', dir: 'E' },
+        '11,4': { type: 'join', out: 'C', dir: 'E' }, '10,4': { type: 'source', sym: 'A', dir: 'E' }, '11,3': { type: 'source', sym: 'B', dir: 'S' },
+        '12,5': { type: 'join', out: 'C', dir: 'N' }, '11,5': { type: 'source', sym: 'A', dir: 'E' }, '12,6': { type: 'source', sym: 'B', dir: 'N' },
+      },
+      links: [],
+    },
+  },
+  {
+    id: 'bakery', name: 'Bakery', group: 'Workshop', w: 14, h: 9,
+    brief: 'Fill the tray: Cs down the left, Ds down the right, twice.',
+    tools: ['source', 'join', 'redirect', 'gate', 'filter', 'drain', 'presence', 'kind', 'toggle'],
+    sources: ['A', 'B'], recipes: [['A', 'B', 'C'], ['C', 'A', 'D']],
+    plates: [{ id: 'P1', x: 11, y: 6, w: 2, h: 2, pattern: ['CD', 'CD'], need: 2 }],
+    par: { cost: 36, ticks: 9, area: 14 },
+    ref: {
+      tiles: {
+        '11,3': { type: 'join', out: 'C', dir: 'S' }, '10,3': { type: 'source', sym: 'A', dir: 'E' }, '11,2': { type: 'source', sym: 'B', dir: 'S' },
+        '12,2': { type: 'join', out: 'C', dir: 'S' }, '12,1': { type: 'source', sym: 'B', dir: 'S' }, '13,2': { type: 'source', sym: 'A', dir: 'W' },
+        '12,4': { type: 'join', out: 'D', dir: 'S' }, '13,6': { type: 'source', sym: 'A', dir: 'N' }, '13,4': R('W'),
+      },
+      links: [],
+    },
+  },
 ];
 
 /* ---------- Level helpers ---------- */
@@ -215,7 +264,8 @@ function compileLevel(level, test) {
       plateAt.set(key(p.x + dx, p.y + dy), { i, sym: p.pattern[dy][dx] });
     }
   });
-  return { W: level.w, H: level.h, walls, emitters, ports, plates, emitAt, portAt, plateAt };
+  const recipes = (level.recipes || []).map(([a, b, out]) => ({ a, b, out }));
+  return { W: level.w, H: level.h, walls, emitters, ports, plates, emitAt, portAt, plateAt, recipes, sources: level.sources || [] };
 }
 
 function validLinks(C, sol) {
@@ -241,6 +291,11 @@ function simulate(level, testIndex, sol, limitOverride) {
   const tileList = Object.entries(tiles);
   const links = validLinks(C, sol);
   const wiredTo = new Set(links.map((l) => l.to));
+  const sourceList = tileList.filter(([, t]) => t.type === 'source');
+  const recipeFor = (out) => C.recipes.find((r) => r.out === out);
+  // Area: open-floor cells the machine uses, whether by a part or a passing block.
+  const isFloor = (k) => !C.walls.has(k) && !C.emitAt.has(k) && !C.portAt.has(k) && !C.plateAt.has(k);
+  const used = new Set(Object.keys(tiles).filter(isFloor));
 
   let blocks = [];
   let nextId = 1;
@@ -277,6 +332,7 @@ function simulate(level, testIndex, sol, limitOverride) {
     if (nx < 0 || ny < 0 || nx >= C.W || ny >= C.H) return null;
     const nk = key(nx, ny);
     if (C.walls.has(nk) || C.emitAt.has(nk)) return null;
+    if (tiles[nk] && tiles[nk].type === 'source') return null;
     const here = C.plateAt.get(k);
     if (here) {
       const there = C.plateAt.get(nk);
@@ -342,14 +398,33 @@ function simulate(level, testIndex, sol, limitOverride) {
       }
       spawns.push({ i, k });
     });
+    // Sources: on (unwired, or wired and lit) and clear, they release. Blocked, they wait.
+    for (const [k, tile] of sourceList) {
+      if (!act[k]) continue;
+      const o = occ.get(k);
+      if (o && status.get(o.id) !== 'move') continue;
+      spawns.push({ k, src: tile });
+    }
 
-    // Contention: two or more blocks entering one cell
+    // Contention: two or more blocks entering one cell crash, except two blocks
+    // entering a join together that match its recipe: those fuse.
+    const byId = new Map(blocks.map((b) => [b.id, b]));
     const entrants = new Map();
     const add = (k, v) => { if (!entrants.has(k)) entrants.set(k, []); entrants.get(k).push(v); };
     for (const b of blocks) if (status.get(b.id) === 'move') add(target.get(b.id), b.id);
     for (const s of spawns) add(s.k, 'spawn');
+    const fusions = [];
     for (const [k, list] of entrants) {
-      if (list.length > 1) crashes.push({ kind: 'collide', cells: [k], ids: list.filter((v) => v !== 'spawn') });
+      if (list.length < 2) continue;
+      const jt = tiles[k];
+      if (jt && jt.type === 'join' && list.length === 2 && !list.includes('spawn')) {
+        const r = recipeFor(jt.out), [s1, s2] = list.map((id) => byId.get(id).sym);
+        if (r && ((s1 === r.a && s2 === r.b) || (s1 === r.b && s2 === r.a))) {
+          fusions.push({ k, ids: list, out: r.out, dir: jt.dir });
+          continue;
+        }
+      }
+      crashes.push({ kind: 'collide', cells: [k], ids: list.filter((v) => v !== 'spawn') });
     }
 
     if (crashes.length) {
@@ -365,7 +440,8 @@ function simulate(level, testIndex, sol, limitOverride) {
     }
 
     // Apply
-    const moved = new Set(), arrivals = new Set(), gone = [], spawned = [];
+    const moved = new Set(), arrivals = new Set(), gone = [], spawned = [], fused = [];
+    const fusedIds = new Set(fusions.flatMap((f) => f.ids));
     let fail = null;
     for (const b of blocks) {
       if (status.get(b.id) !== 'move') continue;
@@ -378,6 +454,10 @@ function simulate(level, testIndex, sol, limitOverride) {
     blocks = blocks.filter((b) => {
       if (!moved.has(b.id)) return true;
       const k = key(b.x, b.y);
+      if (fusedIds.has(b.id)) {
+        gone.push({ id: b.id, x: b.x, y: b.y, sym: b.sym, dir: b.dir, how: 'join' });
+        return false;
+      }
       const pi = C.portAt.get(k);
       if (pi !== undefined) {
         const p = C.ports[pi], got = portGot[pi];
@@ -402,16 +482,30 @@ function simulate(level, testIndex, sol, limitOverride) {
       }
       return true;
     });
+    for (const f of fusions) {
+      const [x, y] = unkey(f.k);
+      const nb = { id: nextId++, x, y, sym: f.out, dir: f.dir };
+      blocks.push(nb);
+      spawned.push(nb.id);
+      fused.push({ x, y, sym: f.out });
+    }
     for (const s of spawns) {
-      const e = C.emitters[s.i];
-      const sym = e.seq[emitN[s.i] % e.seq.length];
-      emitN[s.i]++;
-      const nb = { id: nextId++, x: e.x, y: e.y, sym, dir: e.dir };
+      let nb;
+      if (s.src) {
+        const [x, y] = unkey(s.k);
+        nb = { id: nextId++, x, y, sym: s.src.sym, dir: s.src.dir };
+      } else {
+        const e = C.emitters[s.i];
+        const sym = e.seq[emitN[s.i] % e.seq.length];
+        emitN[s.i]++;
+        nb = { id: nextId++, x: e.x, y: e.y, sym, dir: e.dir };
+      }
       blocks.push(nb);
       spawned.push(nb.id);
       arrivals.add(s.k);
     }
-    return { moved, arrivals, gone, spawned, fail };
+    for (const b of blocks) { const k = key(b.x, b.y); if (isFloor(k)) used.add(k); }
+    return { moved, arrivals, gone, spawned, fused, fail };
   }
 
   /* Signal beat. Sensors read where blocks landed, wires carry, actuators snap.
@@ -478,15 +572,15 @@ function simulate(level, testIndex, sol, limitOverride) {
       result = { status: 'crash', t, msg: mv.crash.msg, cells: mv.crash.cells };
       break;
     }
-    snap('tick', t, { gone: mv.gone, spawned: mv.spawned, fail: mv.fail });
+    snap('tick', t, { gone: mv.gone, spawned: mv.spawned, fused: mv.fused, fail: mv.fail });
     if (mv.fail) { result = { status: 'fail', t, msg: mv.fail.msg, cells: mv.fail.cells }; break; }
     const tk = tock(t, mv.arrivals, mv.moved);
     snap('tock', t, { cleared: tk.cleared, fail: tk.fail });
     if (tk.fail) { result = { status: 'fail', t, msg: tk.fail.msg, cells: tk.fail.cells }; break; }
-    if (tk.win) { result = { status: 'win', t, msg: `Solved in ${t} ticks` }; break; }
+    if (tk.win) { result = { status: 'win', t, msg: `Solved in ${t} ticks`, area: used.size }; break; }
     const exhausted = C.emitters.every((e, i) => !e.cycle && emitN[i] >= e.seq.length);
-    if (exhausted && blocks.length === 0) {
-      result = { status: 'fail', t, msg: `Out of blocks at tick ${t} before the goal was met` };
+    if (exhausted && blocks.length === 0 && !sourceList.length) {
+      result = { status: 'fail', t, msg: C.emitters.length ? `Out of blocks at tick ${t} before the goal was met` : 'Nothing is running yet. Place a source to start production.' };
       break;
     }
     idle = (mv.moved.size || mv.spawned.length) ? 0 : idle + 1;

@@ -96,6 +96,7 @@
       tick() { tone(2300, { type: 'sine', dur: 0.025, vol: 0.05 }); },
       click() { noise(0.022, 0.3, 3400); },
       drain() { tone(330, { type: 'sine', dur: 0.2, vol: 0.22, glide: 110 }); },
+      fuse() { tone(392, { type: 'sine', dur: 0.12, vol: 0.18 }); tone(587.33, { type: 'sine', dur: 0.16, vol: 0.18, when: 0.05 }); },
       crash() { noise(0.35, 0.9, 380); tone(92, { type: 'sine', dur: 0.45, vol: 0.6, glide: 44 }); },
       fail() { tone(196, { type: 'sawtooth', dur: 0.28, vol: 0.1 }); tone(185, { type: 'sawtooth', dur: 0.32, vol: 0.1, when: 0.03 }); },
       chord(idx) { idx.forEach((i, n) => tone(SCALE[Math.max(0, i) % SCALE.length] / 2, { dur: 0.7, vol: 0.22, when: n * 0.035 })); },
@@ -131,6 +132,8 @@
     if (symCache[L.id]) return symCache[L.id];
     const set = new Set();
     levelTests(L).forEach((t) => compileLevel(L, t).emitters.forEach((e) => e.seq.forEach((c) => set.add(c))));
+    (L.sources || []).forEach((c) => set.add(c));
+    (L.recipes || []).forEach((r) => r.forEach((c) => set.add(c)));
     return (symCache[L.id] = [...set].sort());
   }
   function cellKind(x, y) {
@@ -173,10 +176,16 @@
     if (S.results.every((r) => r.result.status === 'win')) {
       const cost = solutionCost(sol());
       const ticks = Math.max(...S.results.map((r) => r.result.t));
+      const area = Math.max(...S.results.map((r) => r.result.area));
       const best = store.get('best.' + L.id, null);
       // Remember whether this machine set a personal best, for the solve card.
-      S.improved = { cost: !best || cost < best.cost, ticks: !best || ticks < best.ticks };
-      store.set('best.' + L.id, best ? { cost: Math.min(best.cost, cost), ticks: Math.min(best.ticks, ticks) } : { cost, ticks });
+      S.improved = {
+        cost: !best || cost < best.cost, ticks: !best || ticks < best.ticks,
+        area: !best || best.area == null || area < best.area,
+      };
+      store.set('best.' + L.id, best
+        ? { cost: Math.min(best.cost, cost), ticks: Math.min(best.ticks, ticks), area: Math.min(best.area == null ? area : best.area, area) }
+        : { cost, ticks, area });
     }
     S.lastFrame = -1;
     renderLevels();
@@ -305,6 +314,19 @@
         [0.29, 0.19].forEach((r) => { c.beginPath(); c.arc(cx, cy, r * s, 0, Math.PI * 2); c.lineWidth = lw * 1.4; c.strokeStyle = COL.steelInk; c.stroke(); });
         c.beginPath(); c.arc(cx, cy, 0.09 * s, 0, Math.PI * 2); c.fillStyle = COL.recess; c.fill();
         c.lineWidth = lw; c.strokeStyle = COL.steelInk; c.stroke();
+      } else if (t.type === 'join') {
+        // Two arms converge on the product; the arrow shows where the product goes.
+        const [dx, dy] = DIRS[t.dir], px = -dy, py = dx;
+        const bx = cx - dx * 0.3 * s, by = cy - dy * 0.3 * s;
+        c.strokeStyle = COL.steelInk; c.lineWidth = lw * 2;
+        [-1, 1].forEach((sg) => {
+          c.beginPath();
+          c.moveTo(bx + px * sg * 0.26 * s, by + py * sg * 0.26 * s);
+          c.lineTo(cx - dx * 0.1 * s + px * sg * 0.09 * s, cy - dy * 0.1 * s + py * sg * 0.09 * s);
+          c.stroke();
+        });
+        arrowSeg(c, cx + dx * 0.16 * s, cy + dy * 0.16 * s, cx + dx * 0.4 * s, cy + dy * 0.4 * s, 0.07 * s, COL.steelInk);
+        if (t.out) miniChip(c, t.out, cx - dx * 0.02 * s, cy - dy * 0.02 * s, 0.32 * s);
       }
     } else if (fam === 'sensor') {
       const on = !!st.on, ink = on ? COL.lit : COL.brass;
@@ -352,6 +374,13 @@
       if (t.type === 'redirect') {
         c.globalAlpha = on ? 1 : 0.35;
         arrow(c, cx, cy, t.dir, 0.56 * s, 0.1 * s, ink);
+        c.globalAlpha = 1;
+      } else if (t.type === 'source') {
+        // A hopper: its symbol, and a spout on the side blocks leave from.
+        const [dx, dy] = DIRS[t.dir];
+        c.globalAlpha = on ? 1 : 0.45;
+        if (t.sym) miniChip(c, t.sym, cx - dx * 0.07 * s, cy - dy * 0.07 * s, 0.36 * s);
+        arrowSeg(c, cx + dx * 0.2 * s, cy + dy * 0.2 * s, cx + dx * 0.41 * s, cy + dy * 0.41 * s, 0.07 * s, ink);
         c.globalAlpha = 1;
       } else if (t.type === 'gate') {
         c.strokeStyle = ink; c.lineWidth = lw * 2;
@@ -465,7 +494,10 @@
     }
     const mark = f > 0.5 ? B : A;
     // Rings that bloom from ports (and shrink into drains) just after a block is taken.
-    const pops = f > 0 && A.beat === 'tick' && !A.crash && !REDUCED ? (A.gone || []).map((g) => ({ ...g, p: f })) : [];
+    const pops = f > 0 && A.beat === 'tick' && !A.crash && !REDUCED
+      ? (A.gone || []).filter((g) => g.how !== 'join').map((g) => ({ ...g, p: f }))
+        .concat((A.fused || []).map((g) => ({ ...g, how: 'port', p: f })))
+      : [];
     return { A, B, f, E, pulse, blocks, mark, pops };
   }
   function drawPop(g) {
@@ -806,8 +838,10 @@
   /* ---------- Editing ---------- */
   function defaultTile(type) {
     const t = { type };
-    if (type === 'filter' || type === 'redirect') t.dir = S.placeDir;
+    if (type === 'filter' || type === 'redirect' || type === 'source' || type === 'join') t.dir = S.placeDir;
     if (type === 'filter' || type === 'kind') t.sym = levelSymbols(level())[0];
+    if (type === 'source') t.sym = (level().sources || [])[0] || 'A';
+    if (type === 'join') t.out = ((level().recipes || [])[0] || [])[2];
     if (type === 'clock') t.k = 0;
     return t;
   }
@@ -1065,7 +1099,11 @@
         if (!REDUCED) { wrap.classList.remove('shake'); void wrap.offsetWidth; wrap.classList.add('shake'); }
         return;
       }
-      (F.gone || []).forEach((g) => (g.how === 'port' ? Sound.note(syms.indexOf(g.sym)) : Sound.drain()));
+      (F.gone || []).forEach((g) => {
+        if (g.how === 'port') Sound.note(syms.indexOf(g.sym));
+        else if (g.how === 'drain') Sound.drain();
+      });
+      if (F.fused && F.fused.length) Sound.fuse();
       if (F.fail) Sound.fail();
     } else {
       const P = fr[i - 1];
@@ -1186,7 +1224,15 @@
   const chip = (c, extra) => `<span class="chip${extra ? ' ' + extra : ''}" style="background:${symColor(c)}">${esc(c)}</span>`;
   const CHECK = '<svg class="lvl-done" viewBox="0 0 16 16" aria-label="Solved"><path d="M3 8.5 6.5 12 13 4.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   const STAR = '<svg class="lvl-star" viewBox="0 0 16 16" aria-label="Both targets hit"><path d="M8 1.6l1.95 4 4.4.62-3.18 3.1.75 4.38L8 11.64l-3.92 2.06.75-4.38-3.18-3.1 4.4-.62z" fill="currentColor"/></svg>';
-  const hitBoth = (L, best) => !!best && best.cost <= L.par.cost && best.ticks <= L.par.ticks;
+  const hitBoth = (L, best) => !!best && best.cost <= L.par.cost && best.ticks <= L.par.ticks
+    && (L.par.area == null || (best.area != null && best.area <= L.par.area));
+  const groupOf = (L) => L.group || 'Routing';
+  // Levels are grouped (Workshop first); numbering runs within each group.
+  function levelLabel(i) {
+    const L = LEVELS[i], same = LEVELS.filter((x) => groupOf(x) === groupOf(L));
+    const n = same.indexOf(L) + 1;
+    return { n, count: same.length, chip: groupOf(L) === 'Workshop' ? 'W' + n : String(n).padStart(2, '0') };
+  }
   // Parts a level introduces: in its tools but in no earlier level's.
   function newPartsFor(i) {
     const seen = new Set();
@@ -1196,12 +1242,18 @@
 
   function renderLevels() {
     const el = $('#levels');
-    el.innerHTML = LEVELS.map((L, i) => {
+    const chipFor = (L, i) => {
       const best = store.get('best.' + L.id, null), both = hitBoth(L, best);
       const mark = best ? (both ? STAR : CHECK) : '';
-      const status = best ? (both ? ', both targets hit' : ', solved') : '';
-      return `<button class="lvl" data-i="${i}" title="${esc(L.name)}" aria-label="Level ${i + 1}: ${esc(L.name)}${status}" aria-current="${i === S.levelIdx}">${String(i + 1).padStart(2, '0')}${mark}</button>`;
-    }).join('');
+      const status = best ? (both ? ', every target hit' : ', solved') : '';
+      const lab = levelLabel(i);
+      return `<button class="lvl" data-i="${i}" title="${esc(L.name)}" aria-label="${groupOf(L)} ${lab.n}: ${esc(L.name)}${status}" aria-current="${i === S.levelIdx}">${lab.chip}${mark}</button>`;
+    };
+    const groups = ['Workshop', 'Routing'].map((g) => ({ g, items: LEVELS.map((L, i) => ({ L, i })).filter((x) => groupOf(x.L) === g) }))
+      .filter((x) => x.items.length);
+    el.innerHTML = groups.map(({ g, items }) => `
+      <div class="lvl-group"><h3>${g === 'Workshop' ? 'Workshop <span class="exp">experiment</span>' : 'Routing'}</h3>
+      <div class="lvl-grid">${items.map(({ L, i }) => chipFor(L, i)).join('')}</div></div>`).join('');
     el.querySelectorAll('.lvl').forEach((b) => { b.onclick = () => { if (+b.dataset.i !== S.levelIdx) loadLevel(+b.dataset.i); }; });
   }
 
@@ -1220,18 +1272,26 @@
         <div class="io-head"><span class="io-id">${esc(p.id)}</span><span class="io-meta" data-plate="${i}">0 of ${p.need} filled</span></div>
         <div class="mini" style="grid-template-columns:repeat(${p.w}, 22px)">${p.pattern.flat().map((c) => chip(c)).join('')}</div>
       </div>`).join('');
-    $('#levelInfo').innerHTML = `
-      <p class="eyebrow">Level ${S.levelIdx + 1} of ${LEVELS.length}</p>
-      <h1>${esc(L.name)}</h1>
-      <p class="brief-text">${esc(L.brief)}</p>
-      ${(() => { const np = newPartsFor(S.levelIdx); return np.length ? `<p class="newparts">New: ${np.map((t) => TILE_DEFS[t].name).join(', ')}</p>` : ''; })()}
-      <div style="height:16px"></div>
+    const lab = levelLabel(S.levelIdx);
+    const inputs = C.emitters.length ? `
       <h2>Inputs</h2>
       ${C.emitters.map((e, i) => `
         <div class="io">
           <div class="io-head"><span class="io-id">${esc(e.id)}</span><span class="io-meta">${emitterMeta(e)}</span></div>
           <div class="strip" data-emit="${i}">${e.seq.map((c) => chip(c)).join('')}${e.cycle ? '<span class="repeat">↻</span>' : ''}</div>
-        </div>`).join('')}
+        </div>`).join('')}` : `
+      <h2>Sources</h2>
+      <div class="io"><div class="strip">${(L.sources || []).map((c) => chip(c)).join('')}</div>
+        <span class="io-meta">Place as many as you like, ${TILE_DEFS.source.cost} each</span></div>
+      ${(L.recipes || []).length ? `<div style="height:14px"></div><h2>Recipes</h2>
+      <div class="recipes">${L.recipes.map(([a, b, out]) => `<div class="recipe">${chip(a)}<span>+</span>${chip(b)}<span>→</span>${chip(out)}</div>`).join('')}</div>` : ''}`;
+    $('#levelInfo').innerHTML = `
+      <p class="eyebrow">${groupOf(L) === 'Workshop' ? 'Workshop' : 'Level'} ${lab.n} of ${lab.count}</p>
+      <h1>${esc(L.name)}</h1>
+      <p class="brief-text">${esc(L.brief)}</p>
+      ${(() => { const np = newPartsFor(S.levelIdx); return np.length ? `<p class="newparts">New: ${np.map((t) => TILE_DEFS[t].name).join(', ')}</p>` : ''; })()}
+      <div style="height:16px"></div>
+      ${inputs}
       <div style="height:16px"></div>
       <h2>Goal</h2>
       ${goals}`;
@@ -1246,19 +1306,24 @@
     const best = store.get('best.' + L.id, null);
     const hasHist = (S.history[L.id] || []).length > 0;
     const okC = !!best && best.cost <= L.par.cost, okT = !!best && best.ticks <= L.par.ticks;
+    const hasArea = L.par.area != null;
+    const okA = hasArea && !!best && best.area != null && best.area <= L.par.area;
+    const area = allWin ? Math.max(...S.results.map((r) => r.result.area)) : null;
     const tick = '<svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M3 8.5 6.5 12 13 4.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     $('#scoreBox').innerHTML = `
       <h2>This machine</h2>
-      <div class="score">
+      <div class="score${hasArea ? ' three' : ''}">
         <div class="stat"><span class="stat-k">Cost</span><span class="stat-v">${cost}</span></div>
         <div class="stat"><span class="stat-k">Ticks</span><span class="stat-v">${ticks == null ? '—' : ticks}</span></div>
+        ${hasArea ? `<div class="stat" title="Open cells your machine uses: parts plus every cell a block passes through"><span class="stat-k">Area</span><span class="stat-v">${area == null ? '—' : area}</span></div>` : ''}
       </div>
-      <div class="targets" title="The best machines found so far. Cost and ticks may come from different machines.">
+      <div class="targets" title="The best machines found so far. Each target may come from a different machine.">
         <span class="tlabel">Targets</span>
         <span class="pill${okC ? ' ok' : ''}">${okC ? tick : ''}Cost ${L.par.cost}</span>
         <span class="pill${okT ? ' ok' : ''}">${okT ? tick : ''}${L.par.ticks} ticks</span>
+        ${hasArea ? `<span class="pill${okA ? ' ok' : ''}">${okA ? tick : ''}Area ${L.par.area}</span>` : ''}
       </div>
-      <div class="best">${best ? `Your best: cost ${best.cost} · ${best.ticks} ticks` : 'Not solved yet'}</div>
+      <div class="best">${best ? `Your best: cost ${best.cost} · ${best.ticks} ticks${hasArea && best.area != null ? ` · area ${best.area}` : ''}` : 'Not solved yet'}</div>
       <div style="height:12px"></div>
       <div class="actions">
         <button class="btn" id="bUndo" ${hasHist ? '' : 'disabled'}>Undo</button>
@@ -1275,21 +1340,28 @@
   function showCelebration() {
     const L = level(), i = S.levelIdx, cost = solutionCost(sol());
     const ticks = Math.max(...S.results.map((r) => r.result.t));
-    const best = store.get('best.' + L.id, null) || { cost, ticks };
+    const area = Math.max(...S.results.map((r) => r.result.area));
+    const best = store.get('best.' + L.id, null) || { cost, ticks, area };
     const imp = S.improved || {};
     const okC = best.cost <= L.par.cost, okT = best.ticks <= L.par.ticks;
+    const hasArea = L.par.area != null;
     const row = (k, v, target, isNew) => {
       const met = v <= target;
       const note = met ? (v < target ? `beats the target of ${target}` : 'hits the target') : `target is ${target}`;
       return `<div class="cel-row"><span class="cel-k">${k}</span><span class="cel-v">${v}</span><span class="cel-t${met ? ' ok' : ''}">${note}</span>${isNew ? '<span class="cel-new">New best</span>' : '<span></span>'}</div>`;
     };
-    const sub = okC && okT ? 'You’ve hit both targets on this level.'
-      : okC || okT ? `${okC ? 'Cost' : 'Tick'} target hit. The ${okC ? 'tick' : 'cost'} target is still open.`
+    const marks = [['cost', okC], ['tick', okT]].concat(hasArea ? [['area', best.area != null && best.area <= L.par.area]] : []);
+    const hit = marks.filter((m) => m[1]).map((m) => m[0]), open = marks.filter((m) => !m[1]).map((m) => m[0]);
+    const list = (xs) => xs.length === 1 ? xs[0] : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1];
+    const cap = (s) => s[0].toUpperCase() + s.slice(1);
+    const sub = !open.length ? 'You’ve hit every target on this level.'
+      : hit.length ? `${cap(list(hit))} target${hit.length > 1 ? 's' : ''} hit. Still open: ${list(open)}.`
         : 'It works. The targets show what’s possible.';
     const next = LEVELS[i + 1];
-    $('#celEyebrow').textContent = `Level ${i + 1} · ${L.name}`;
+    $('#celEyebrow').textContent = `${groupOf(L) === 'Workshop' ? 'Workshop' : 'Level'} ${levelLabel(i).n} · ${L.name}`;
     $('#celSub').textContent = next ? sub : `${sub} That’s every level.`;
-    $('#celRows').innerHTML = row('Cost', cost, L.par.cost, imp.cost) + row('Ticks', ticks, L.par.ticks, imp.ticks);
+    $('#celRows').innerHTML = row('Cost', cost, L.par.cost, imp.cost) + row('Ticks', ticks, L.par.ticks, imp.ticks)
+      + (hasArea ? row('Area', area, L.par.area, imp.area) : '');
     const nb = $('#celNext');
     nb.hidden = !next;
     if (next) nb.textContent = `Next: ${next.name}`;
@@ -1384,7 +1456,11 @@
       const syms = levelSymbols(level());
       let fields = '';
       if (t.dir) fields += `<div class="field"><span class="flabel">Heading</span><div class="seg" data-prop="dir">${DIR_ORDER.map((d) => `<button data-v="${d}" aria-pressed="${t.dir === d}" aria-label="${d}">${ARROWS[d]}</button>`).join('')}</div></div>`;
-      if (t.sym != null) fields += `<div class="field"><span class="flabel">Symbol</span><div class="seg" data-prop="sym">${syms.map((c) => `<button class="chip-btn" style="background:${symColor(c)}" data-v="${esc(c)}" aria-pressed="${t.sym === c}">${esc(c)}</button>`).join('')}</div></div>`;
+      const symChoices = t.type === 'source' ? (level().sources || []) : syms;
+      if (t.sym != null) fields += `<div class="field"><span class="flabel">Symbol</span><div class="seg" data-prop="sym">${symChoices.map((c) => `<button class="chip-btn" style="background:${symColor(c)}" data-v="${esc(c)}" aria-pressed="${t.sym === c}">${esc(c)}</button>`).join('')}</div></div>`;
+      if (t.type === 'join') {
+        fields += `<div class="field"><span class="flabel">Makes</span><div class="seg" data-prop="out">${(level().recipes || []).map(([a, b, out]) => `<button data-v="${esc(out)}" aria-pressed="${t.out === out}">${esc(a)} + ${esc(b)} → ${esc(out)}</button>`).join('')}</div></div>`;
+      }
       if (t.type === 'clock') {
         const kk = t.k || 0;
         fields += `<div class="field"><span class="flabel">At tick 0</span><div class="seg" data-prop="k"><button data-v="0" aria-pressed="${kk === 0}">Starts lit</button><button data-v="1" aria-pressed="${kk === 1}">Starts dark</button></div></div>`;
@@ -1431,8 +1507,8 @@
         <h2>Placing</h2>
         <div class="insp-head"><canvas id="inspIcon"></canvas><div><div class="insp-name">${def.name}</div><div class="insp-fam">cost ${def.cost}</div></div></div>
         <p class="insp-desc">${esc(def.desc)}</p>
-        <p class="hint" style="margin-top:8px">Click an empty cell, or drag the part onto the board.${['filter', 'redirect'].includes(S.tool) ? ` It will face ${ARROWS[S.placeDir]}. Press <kbd>R</kbd> to rotate.` : ''} <kbd>Esc</kbd> puts the part down.</p>`;
-      drawIcon($('#inspIcon'), S.tool, 40, ['filter', 'redirect'].includes(S.tool) ? { dir: S.placeDir } : null);
+        <p class="hint" style="margin-top:8px">Click an empty cell, or drag the part onto the board.${['filter', 'redirect', 'source', 'join'].includes(S.tool) ? ` It will face ${ARROWS[S.placeDir]}. Press <kbd>R</kbd> to rotate.` : ''} <kbd>Esc</kbd> puts the part down.</p>`;
+      drawIcon($('#inspIcon'), S.tool, 40, ['filter', 'redirect', 'source', 'join'].includes(S.tool) ? { dir: S.placeDir } : null);
     } else {
       el.innerHTML = '<h2>Selected</h2><p class="hint">Nothing selected. Click a part on the board to edit it, or click a sensor to start wiring.</p>';
     }

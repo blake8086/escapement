@@ -30,6 +30,7 @@
   color-scheme: dark;
 }
 
+[hidden] { display: none !important; }
 html, body { height: 100%; }
 body {
   margin: 0;
@@ -132,7 +133,13 @@ h3 {
 section { min-width: 0; }
 
 /* Level list */
-.levels { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.levels { display: flex; flex-direction: column; gap: 12px; }
+.lvl-group h3 { margin: 0 0 6px; }
+.lvl-group .exp { margin-left: 4px; font-family: var(--f-mono); font-size: 10px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: var(--brass); }
+.lvl-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.recipes { display: flex; flex-direction: column; gap: 6px; }
+.recipe { display: flex; align-items: center; gap: 6px; color: var(--faint); font-family: var(--f-mono); font-size: 13px; }
+.score.three { grid-template-columns: 1fr 1fr 1fr; }
 .lvl {
   position: relative;
   display: grid;

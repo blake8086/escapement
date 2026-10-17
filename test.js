@@ -25,8 +25,13 @@ const R = (dir) => ({ type: 'redirect', dir });
 const runAll = (L, sol) => {
   const rs = S.levelTests(L).map((_, i) => S.simulate(L, i, sol).result);
   const win = rs.every((r) => r.status === 'win');
-  return { win, cost: S.solutionCost(sol), ticks: win ? Math.max(...rs.map((r) => r.t)) : null, msg: rs.find((r) => r.status !== 'win')?.msg };
+  return {
+    win, cost: S.solutionCost(sol), ticks: win ? Math.max(...rs.map((r) => r.t)) : null,
+    area: win ? Math.max(...rs.map((r) => r.area)) : null, msg: rs.find((r) => r.status !== 'win')?.msg,
+  };
 };
+const src = (sym, dir) => ({ type: 'source', sym, dir });
+const join = (out, dir) => ({ type: 'join', out, dir });
 const noWin = (label, L, sol) => {
   const r = runAll(L, sol);
   expect(label, r.win ? 'win' : 'no-win', 'no-win');
@@ -49,6 +54,24 @@ const BEST = {
     },
     links: [{ from: '2,2', to: '2,3' }, { from: '2,2', to: '5,1' }],
   }],
+  // One C line split by a toggle; every even C is held a tick so pairs reach the D join together.
+  'double-up': [{
+    tiles: {
+      '1,4': src('A', 'E'), '2,3': src('B', 'S'), '2,4': join('C', 'E'),
+      '3,4': { type: 'toggle' }, '4,4': R('N'), '4,3': R('E'), '12,3': R('S'),
+      '8,3': { type: 'presence' }, '8,4': { type: 'gate' }, '12,4': join('D', 'E'),
+    },
+    links: [{ from: '3,4', to: '4,4' }, { from: '8,3', to: '8,4' }],
+  }],
+  // One C line split by a toggle; a sensor on the even path releases the A for each D.
+  'bakery': [{
+    tiles: {
+      '1,3': src('A', 'E'), '2,2': src('B', 'S'), '2,3': join('C', 'E'),
+      '3,3': { type: 'toggle' }, '4,3': R('S'), '4,5': R('E'), '11,5': R('S'),
+      '12,3': R('S'), '12,4': join('D', 'S'), '13,4': src('A', 'W'), '11,3': { type: 'presence' },
+    },
+    links: [{ from: '3,3', to: '4,3' }, { from: '11,3', to: '13,4' }],
+  }],
 };
 for (const L of S.LEVELS) {
   const results = [L.ref].concat(BEST[L.id] || []).map((sol) => runAll(L, sol));
@@ -56,6 +79,36 @@ for (const L of S.LEVELS) {
   const wins = results.filter((r) => r.win);
   expect(`${L.id} par cost reached`, Math.min(...wins.map((r) => r.cost)), L.par.cost);
   expect(`${L.id} par ticks reached`, Math.min(...wins.map((r) => r.ticks)), L.par.ticks);
+  if (L.par.area != null) expect(`${L.id} par area reached`, Math.min(...wins.map((r) => r.area)), L.par.area);
+}
+
+// Joins and sources.
+{
+  const L = byId('first-join');
+  noWin('first-join with unequal paths (a lone A reaches the output)', L, { tiles: { '7,3': join('C', 'E'), '6,3': src('A', 'E'), '7,0': src('B', 'S') }, links: [] });
+  const r = runAll(L, { tiles: { '7,3': join('C', 'E'), '4,3': src('A', 'E'), '7,0': src('B', 'S') }, links: [] });
+  expect('first-join with paths matched wins', r.win, true);
+  const wrong = S.simulate(L, 0, { tiles: { '7,3': join('C', 'E'), '6,3': src('A', 'E'), '7,2': src('A', 'S') }, links: [] }).result;
+  expect('two As into an A+B join crash', wrong.status, 'crash');
+  const blocked = S.simulate(L, 0, { tiles: { '6,3': src('A', 'E'), '7,3': { type: 'gate' } }, links: [] }).result;
+  expect('a blocked source waits instead of crashing', blocked.status, 'fail');
+  console.log('      ', blocked.msg);
+}
+{
+  const L = byId('double-up');
+  noWin('double-up shared line without the one-tick hold', L, {
+    tiles: {
+      '1,4': src('A', 'E'), '2,3': src('B', 'S'), '2,4': join('C', 'E'),
+      '3,4': { type: 'toggle' }, '4,4': R('N'), '4,3': R('E'), '12,3': R('S'), '12,4': join('D', 'E'),
+    },
+    links: [{ from: '3,4', to: '4,4' }],
+  });
+}
+{
+  const L = byId('bakery');
+  noWin('bakery with C in both columns', L, {
+    tiles: { '11,3': join('C', 'S'), '10,3': src('A', 'E'), '11,2': src('B', 'S'), '12,3': join('C', 'S'), '12,2': src('B', 'S'), '13,3': src('A', 'W') }, links: [],
+  });
 }
 
 // Naive attempts the levels are meant to reject.
