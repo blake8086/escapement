@@ -196,6 +196,7 @@ section { min-width: 0; }
 }
 .targets { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 12px; }
 .tlabel { font-family: var(--f-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); margin-right: 2px; }
+.tnote { font-size: 12px; color: var(--faint); }
 .pill {
   display: inline-flex;
   align-items: center;
@@ -445,6 +446,7 @@ body.dragging, body.dragging * { cursor: grabbing !important; user-select: none;
 .seg button[aria-pressed="true"] { border-color: var(--brass); color: var(--brass); background: var(--brass-fill); }
 .seg button.chip-btn { color: #10161b; font-weight: 700; border-color: transparent; }
 .seg button.chip-btn[aria-pressed="true"] { outline: 2px solid var(--lit); outline-offset: 1px; }
+.seg button:disabled { opacity: 0.3; cursor: not-allowed; }
 .stepper { display: flex; align-items: center; gap: 6px; }
 .stepper span { font-family: var(--f-mono); font-weight: 700; min-width: 2ch; text-align: center; }
 .check { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
@@ -612,6 +614,10 @@ const isActuatorType = (t) => !!TILE_DEFS[t] && TILE_DEFS[t].family === 'actuato
    so meeting both at once can be harder than meeting each. test.js proves every
    reference and target machine. */
 const R = (dir) => ({ type: 'redirect', dir });
+const SRC = (sym, dir) => ({ type: 'source', sym, dir });
+const JOIN = (out, dir) => ({ type: 'join', out, dir });
+// Every part except the clock: the challenges all offer the same kit.
+const KIT = ['source', 'join', 'redirect', 'gate', 'filter', 'drain', 'presence', 'kind', 'toggle'];
 const LEVELS = [
   {
     id: 'first-turn', name: 'First Turn', w: 7, h: 5,
@@ -813,6 +819,74 @@ const LEVELS = [
         '12,4': { type: 'join', out: 'D', dir: 'S' }, '13,6': { type: 'source', sym: 'A', dir: 'N' }, '13,4': R('W'),
       },
       links: [],
+    },
+  },
+
+  /* ---------- Challenges ----------
+     Goal-only puzzles: the brief says what to make and nothing about how.
+     SPOILERS: each ref below is a complete working machine. */
+  {
+    id: 'call-and-response', name: 'Call and Response', group: 'Challenges', difficulty: 'Medium', w: 12, h: 8,
+    brief: 'Ds and Es, taking turns, starting with a D.',
+    tools: KIT, sourceLimit: 1,
+    sources: ['A', 'B', 'C'], recipes: [['A', 'B', 'D'], ['B', 'C', 'E']],
+    ports: [{ id: 'O1', x: 11, y: 4, expect: 'DEDEDEDE' }],
+    par: { cost: 26, ticks: 12, area: 6 },
+    ref: {
+      tiles: {
+        '0,4': SRC('B', 'E'), '1,4': { type: 'toggle' }, '2,4': R('N'), '2,3': R('E'), '3,3': { type: 'presence' },
+        '5,3': JOIN('D', 'E'), '5,2': SRC('A', 'S'), '3,4': { type: 'presence' }, '5,4': JOIN('E', 'E'), '5,5': SRC('C', 'N'),
+        '8,3': R('S'), '8,4': R('E'), '6,4': R('S'), '6,5': R('E'), '7,5': R('N'), '7,4': R('E'),
+      },
+      links: [{ from: '1,4', to: '2,4' }, { from: '3,3', to: '5,2' }, { from: '3,4', to: '5,5' }],
+    },
+  },
+  {
+    id: 'matchmaker', name: 'Matchmaker', group: 'Challenges', difficulty: 'Medium', w: 12, h: 8,
+    brief: 'Each A that comes in should leave as a D, and each B as an E, in the order they arrived. One machine has to pass both tests.',
+    tools: KIT, sourceLimit: 1,
+    sources: ['X'], recipes: [['A', 'X', 'D'], ['B', 'X', 'E']],
+    emitters: [{ id: 'E1', x: 0, y: 4, dir: 'E', period: 2, seq: 'AABABBBA' }],
+    ports: [{ id: 'O1', x: 11, y: 4, expect: 'DDEDEEED' }],
+    tests: [{}, { emit: { E1: 'BABBAAAB' }, expect: { O1: 'EDEEDDDE' } }],
+    par: { cost: 21, ticks: 26, area: 13 },
+    ref: {
+      tiles: {
+        '3,4': { type: 'presence' }, '4,4': { type: 'kind', sym: 'B' }, '7,1': SRC('X', 'S'), '7,2': R('E'), '8,2': R('S'),
+        '7,4': JOIN('D', 'E'), '8,4': JOIN('E', 'E'),
+      },
+      links: [{ from: '3,4', to: '7,1' }, { from: '4,4', to: '7,2' }],
+    },
+  },
+  {
+    id: 'two-step', name: 'Two-Step', group: 'Challenges', difficulty: 'Very difficult', w: 12, h: 8,
+    brief: 'Two Ds, then two Es, then the same again.',
+    tools: KIT, sourceLimit: 1,
+    sources: ['A', 'B', 'C'], recipes: [['A', 'B', 'D'], ['B', 'C', 'E']],
+    ports: [{ id: 'O1', x: 11, y: 4, expect: 'DDEEDDEE' }],
+    par: { cost: 36, ticks: 16, area: 15 },
+    ref: {
+      tiles: {
+        '0,4': SRC('B', 'E'), '1,4': { type: 'toggle' }, '2,4': R('N'), '2,3': R('E'), '3,3': { type: 'toggle' }, '4,3': R('S'), '4,4': R('E'),
+        '6,4': R('S'), '7,4': R('N'), '7,3': R('E'), '8,3': { type: 'presence' }, '10,3': JOIN('D', 'S'), '10,2': SRC('A', 'S'),
+        '6,5': R('E'), '8,5': { type: 'presence' }, '10,5': JOIN('E', 'N'), '10,6': SRC('C', 'N'), '10,4': R('E'),
+      },
+      links: [{ from: '1,4', to: '2,4' }, { from: '3,3', to: '6,4' }, { from: '8,3', to: '10,2' }, { from: '8,5', to: '10,6' }],
+    },
+  },
+  {
+    id: 'waltz', name: 'Waltz', group: 'Challenges', difficulty: 'Very difficult', w: 12, h: 8,
+    brief: 'Two Ds and then an E, three times over.',
+    tools: KIT, sourceLimit: 1,
+    sources: ['A', 'B', 'C'], recipes: [['A', 'B', 'D'], ['A', 'C', 'E']],
+    ports: [{ id: 'O1', x: 11, y: 4, expect: 'DDEDDEDDE' }],
+    par: { cost: 33, ticks: 15, area: 11 },
+    ref: {
+      tiles: {
+        '1,3': SRC('A', 'E'), '1,1': SRC('C', 'E'), '2,1': { type: 'gate' }, '3,1': { type: 'presence' }, '4,1': { type: 'presence' },
+        '5,1': R('S'), '5,3': JOIN('E', 'S'), '5,4': R('E'), '6,3': { type: 'presence' }, '8,3': JOIN('D', 'S'), '8,2': SRC('B', 'S'), '8,4': R('E'),
+      },
+      links: [{ from: '3,1', to: '2,1' }, { from: '4,1', to: '2,1' }, { from: '6,3', to: '8,2' }],
     },
   },
 ];
@@ -1140,6 +1214,17 @@ function simulate(level, testIndex, sol, limitOverride) {
 
   tock(0, new Set(), new Set());
   snap('tock', 0);
+  // Levels may allow only a limited number of sources per symbol, and only their own symbols.
+  const perSym = {};
+  for (const [, t] of sourceList) perSym[t.sym] = (perSym[t.sym] || 0) + 1;
+  for (const sym of Object.keys(perSym)) {
+    if (C.sources.length && !C.sources.includes(sym)) {
+      return { frames, result: { status: 'fail', t: 0, msg: `This level has no ${sym} source` } };
+    }
+    if (level.sourceLimit && perSym[sym] > level.sourceLimit) {
+      return { frames, result: { status: 'fail', t: 0, msg: `Only ${level.sourceLimit === 1 ? 'one' : level.sourceLimit} ${sym} source${level.sourceLimit === 1 ? ' is' : 's are'} allowed here` } };
+    }
+  }
   let result = null, idle = 0;
   for (let t = 1; t <= limit; t++) {
     const mv = move(t);
@@ -2016,12 +2101,32 @@ if (typeof module !== 'undefined') {
     const t = { type };
     if (type === 'filter' || type === 'redirect' || type === 'source' || type === 'join') t.dir = S.placeDir;
     if (type === 'filter' || type === 'kind') t.sym = levelSymbols(level())[0];
-    if (type === 'source') t.sym = (level().sources || [])[0] || 'A';
+    if (type === 'source') t.sym = freeSourceSym() || (level().sources || [])[0] || 'A';
     if (type === 'join') t.out = ((level().recipes || [])[0] || [])[2];
     if (type === 'clock') t.k = 0;
     return t;
   }
-  function placeTile(k, type) { edit((s) => { s.tiles[k] = defaultTile(type); }); }
+  // Some levels allow only so many sources of each symbol.
+  function symAvailable(sym, skip) {
+    const lim = level().sourceLimit;
+    if (!lim) return true;
+    const n = Object.entries(sol().tiles).filter(([k, t]) => k !== skip && t.type === 'source' && t.sym === sym).length;
+    return n < lim;
+  }
+  const freeSourceSym = () => (level().sources || []).find((c) => symAvailable(c)) || null;
+  function canPlace(type) {
+    if (type !== 'source' || !level().sourceLimit || freeSourceSym()) return true;
+    const lim = level().sourceLimit, many = (level().sources || []).length > 1;
+    toast(lim === 1
+      ? (many ? 'Only one source of each kind here, and all of them are placed.' : 'Only one source is allowed here, and it is placed.')
+      : `Only ${lim} sources of each kind here, and all of them are placed.`);
+    return false;
+  }
+  function placeTile(k, type) {
+    if (!canPlace(type)) return false;
+    edit((s) => { s.tiles[k] = defaultTile(type); });
+    return true;
+  }
   function removeTileAt(k) {
     if (!sol().tiles[k]) return;
     if (S.wireFrom === k) S.wireFrom = null;
@@ -2098,7 +2203,7 @@ if (typeof module !== 'undefined') {
     } else if (t || kind === 'emitter') {
       S.sel = k;
     } else if (S.tool && buildable(c.x, c.y)) {
-      placeTile(k, S.tool); S.sel = k;
+      if (placeTile(k, S.tool)) S.sel = k;
     } else {
       S.sel = null;
       if (buildable(c.x, c.y)) toast('Drag a part onto the board, or pick one and click a cell.');
@@ -2154,7 +2259,7 @@ if (typeof module !== 'undefined') {
     const k = key(c.x, c.y);
     if (sol().tiles[k]) { toast('That cell already has a part.'); return; }
     if (!buildable(c.x, c.y)) { toast('Parts only go on empty floor cells.'); return; }
-    placeTile(k, type);
+    if (!placeTile(k, type)) return;
     S.sel = k;
     renderInspector();
     draw();
@@ -2403,11 +2508,16 @@ if (typeof module !== 'undefined') {
   const hitBoth = (L, best) => !!best && best.cost <= L.par.cost && best.ticks <= L.par.ticks
     && (L.par.area == null || (best.area != null && best.area <= L.par.area));
   const groupOf = (L) => L.group || 'Routing';
-  // Levels are grouped (Workshop first); numbering runs within each group.
+  // Levels are grouped, newest first; numbering runs within each group.
+  const GROUPS = {
+    Challenges: { chip: 'C', noun: 'Challenge', head: 'Challenges' },
+    Workshop: { chip: 'W', noun: 'Workshop', head: 'Workshop <span class="exp">experiment</span>' },
+    Routing: { chip: '', noun: 'Level', head: 'Routing' },
+  };
   function levelLabel(i) {
     const L = LEVELS[i], same = LEVELS.filter((x) => groupOf(x) === groupOf(L));
-    const n = same.indexOf(L) + 1;
-    return { n, count: same.length, chip: groupOf(L) === 'Workshop' ? 'W' + n : String(n).padStart(2, '0') };
+    const n = same.indexOf(L) + 1, g = GROUPS[groupOf(L)];
+    return { n, count: same.length, chip: g.chip ? g.chip + n : String(n).padStart(2, '0') };
   }
   // Parts a level introduces: in its tools but in no earlier level's.
   function newPartsFor(i) {
@@ -2425,10 +2535,10 @@ if (typeof module !== 'undefined') {
       const lab = levelLabel(i);
       return `<button class="lvl" data-i="${i}" title="${esc(L.name)}" aria-label="${groupOf(L)} ${lab.n}: ${esc(L.name)}${status}" aria-current="${i === S.levelIdx}">${lab.chip}${mark}</button>`;
     };
-    const groups = ['Workshop', 'Routing'].map((g) => ({ g, items: LEVELS.map((L, i) => ({ L, i })).filter((x) => groupOf(x.L) === g) }))
+    const groups = Object.keys(GROUPS).map((g) => ({ g, items: LEVELS.map((L, i) => ({ L, i })).filter((x) => groupOf(x.L) === g) }))
       .filter((x) => x.items.length);
     el.innerHTML = groups.map(({ g, items }) => `
-      <div class="lvl-group"><h3>${g === 'Workshop' ? 'Workshop <span class="exp">experiment</span>' : 'Routing'}</h3>
+      <div class="lvl-group"><h3>${GROUPS[g].head}</h3>
       <div class="lvl-grid">${items.map(({ L, i }) => chipFor(L, i)).join('')}</div></div>`).join('');
     el.querySelectorAll('.lvl').forEach((b) => { b.onclick = () => { if (+b.dataset.i !== S.levelIdx) loadLevel(+b.dataset.i); }; });
   }
@@ -2449,20 +2559,27 @@ if (typeof module !== 'undefined') {
         <div class="mini" style="grid-template-columns:repeat(${p.w}, 22px)">${p.pattern.flat().map((c) => chip(c)).join('')}</div>
       </div>`).join('');
     const lab = levelLabel(S.levelIdx);
-    const inputs = C.emitters.length ? `
+    const srcs = L.sources || [], cost = TILE_DEFS.source.cost;
+    const srcNote = !L.sourceLimit ? `Place as many as you like, ${cost} each`
+      : L.sourceLimit === 1 ? (srcs.length > 1 ? `One of each, ${cost} each` : `Just one, ${cost}`)
+        : `Up to ${L.sourceLimit} of each, ${cost} each`;
+    const sections = [];
+    if (C.emitters.length) sections.push(`
       <h2>Inputs</h2>
       ${C.emitters.map((e, i) => `
         <div class="io">
           <div class="io-head"><span class="io-id">${esc(e.id)}</span><span class="io-meta">${emitterMeta(e)}</span></div>
           <div class="strip" data-emit="${i}">${e.seq.map((c) => chip(c)).join('')}${e.cycle ? '<span class="repeat">↻</span>' : ''}</div>
-        </div>`).join('')}` : `
+        </div>`).join('')}`);
+    if (srcs.length) sections.push(`
       <h2>Sources</h2>
-      <div class="io"><div class="strip">${(L.sources || []).map((c) => chip(c)).join('')}</div>
-        <span class="io-meta">Place as many as you like, ${TILE_DEFS.source.cost} each</span></div>
-      ${(L.recipes || []).length ? `<div style="height:14px"></div><h2>Recipes</h2>
-      <div class="recipes">${L.recipes.map(([a, b, out]) => `<div class="recipe">${chip(a)}<span>+</span>${chip(b)}<span>→</span>${chip(out)}</div>`).join('')}</div>` : ''}`;
+      <div class="io"><div class="strip">${srcs.map((c) => chip(c)).join('')}</div>
+        <span class="io-meta">${srcNote}</span></div>`);
+    if ((L.recipes || []).length) sections.push(`<h2>Recipes</h2>
+      <div class="recipes">${L.recipes.map(([a, b, out]) => `<div class="recipe">${chip(a)}<span>+</span>${chip(b)}<span>→</span>${chip(out)}</div>`).join('')}</div>`);
+    const inputs = sections.join('<div style="height:14px"></div>');
     $('#levelInfo').innerHTML = `
-      <p class="eyebrow">${groupOf(L) === 'Workshop' ? 'Workshop' : 'Level'} ${lab.n} of ${lab.count}</p>
+      <p class="eyebrow">${GROUPS[groupOf(L)].noun} ${lab.n} of ${lab.count}${L.difficulty ? ` · ${esc(L.difficulty)}` : ''}</p>
       <h1>${esc(L.name)}</h1>
       <p class="brief-text">${esc(L.brief)}</p>
       ${(() => { const np = newPartsFor(S.levelIdx); return np.length ? `<p class="newparts">New: ${np.map((t) => TILE_DEFS[t].name).join(', ')}</p>` : ''; })()}
@@ -2493,12 +2610,15 @@ if (typeof module !== 'undefined') {
         <div class="stat"><span class="stat-k">Ticks</span><span class="stat-v">${ticks == null ? '—' : ticks}</span></div>
         ${hasArea ? `<div class="stat" title="Open cells your machine uses: parts plus every cell a block passes through"><span class="stat-k">Area</span><span class="stat-v">${area == null ? '—' : area}</span></div>` : ''}
       </div>
-      <div class="targets" title="The best machines found so far. Each target may come from a different machine.">
+      ${groupOf(L) === 'Challenges' && !best
+        // Target numbers say a lot about a machine's makeup, so challenges keep them hidden until a first solve.
+        ? `<div class="targets"><span class="tlabel">Targets</span><span class="tnote">shown after your first solve</span></div>`
+        : `<div class="targets" title="The best machines found so far. Each target may come from a different machine.">
         <span class="tlabel">Targets</span>
         <span class="pill${okC ? ' ok' : ''}">${okC ? tick : ''}Cost ${L.par.cost}</span>
         <span class="pill${okT ? ' ok' : ''}">${okT ? tick : ''}${L.par.ticks} ticks</span>
         ${hasArea ? `<span class="pill${okA ? ' ok' : ''}">${okA ? tick : ''}Area ${L.par.area}</span>` : ''}
-      </div>
+      </div>`}
       <div class="best">${best ? `Your best: cost ${best.cost} · ${best.ticks} ticks${hasArea && best.area != null ? ` · area ${best.area}` : ''}` : 'Not solved yet'}</div>
       <div style="height:12px"></div>
       <div class="actions">
@@ -2633,7 +2753,8 @@ if (typeof module !== 'undefined') {
       let fields = '';
       if (t.dir) fields += `<div class="field"><span class="flabel">Heading</span><div class="seg" data-prop="dir">${DIR_ORDER.map((d) => `<button data-v="${d}" aria-pressed="${t.dir === d}" aria-label="${d}">${ARROWS[d]}</button>`).join('')}</div></div>`;
       const symChoices = t.type === 'source' ? (level().sources || []) : syms;
-      if (t.sym != null) fields += `<div class="field"><span class="flabel">Symbol</span><div class="seg" data-prop="sym">${symChoices.map((c) => `<button class="chip-btn" style="background:${symColor(c)}" data-v="${esc(c)}" aria-pressed="${t.sym === c}">${esc(c)}</button>`).join('')}</div></div>`;
+      const symTaken = (c) => t.type === 'source' && c !== t.sym && !symAvailable(c, k);
+      if (t.sym != null) fields += `<div class="field"><span class="flabel">Symbol</span><div class="seg" data-prop="sym">${symChoices.map((c) => `<button class="chip-btn" style="background:${symColor(c)}" data-v="${esc(c)}" aria-pressed="${t.sym === c}"${symTaken(c) ? ` disabled title="There's already a ${esc(c)} source"` : ''}>${esc(c)}</button>`).join('')}</div></div>`;
       if (t.type === 'join') {
         fields += `<div class="field"><span class="flabel">Makes</span><div class="seg" data-prop="out">${(level().recipes || []).map(([a, b, out]) => `<button data-v="${esc(out)}" aria-pressed="${t.out === out}">${esc(a)} + ${esc(b)} → ${esc(out)}</button>`).join('')}</div></div>`;
       }

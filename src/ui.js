@@ -840,12 +840,32 @@
     const t = { type };
     if (type === 'filter' || type === 'redirect' || type === 'source' || type === 'join') t.dir = S.placeDir;
     if (type === 'filter' || type === 'kind') t.sym = levelSymbols(level())[0];
-    if (type === 'source') t.sym = (level().sources || [])[0] || 'A';
+    if (type === 'source') t.sym = freeSourceSym() || (level().sources || [])[0] || 'A';
     if (type === 'join') t.out = ((level().recipes || [])[0] || [])[2];
     if (type === 'clock') t.k = 0;
     return t;
   }
-  function placeTile(k, type) { edit((s) => { s.tiles[k] = defaultTile(type); }); }
+  // Some levels allow only so many sources of each symbol.
+  function symAvailable(sym, skip) {
+    const lim = level().sourceLimit;
+    if (!lim) return true;
+    const n = Object.entries(sol().tiles).filter(([k, t]) => k !== skip && t.type === 'source' && t.sym === sym).length;
+    return n < lim;
+  }
+  const freeSourceSym = () => (level().sources || []).find((c) => symAvailable(c)) || null;
+  function canPlace(type) {
+    if (type !== 'source' || !level().sourceLimit || freeSourceSym()) return true;
+    const lim = level().sourceLimit, many = (level().sources || []).length > 1;
+    toast(lim === 1
+      ? (many ? 'Only one source of each kind here, and all of them are placed.' : 'Only one source is allowed here, and it is placed.')
+      : `Only ${lim} sources of each kind here, and all of them are placed.`);
+    return false;
+  }
+  function placeTile(k, type) {
+    if (!canPlace(type)) return false;
+    edit((s) => { s.tiles[k] = defaultTile(type); });
+    return true;
+  }
   function removeTileAt(k) {
     if (!sol().tiles[k]) return;
     if (S.wireFrom === k) S.wireFrom = null;
@@ -922,7 +942,7 @@
     } else if (t || kind === 'emitter') {
       S.sel = k;
     } else if (S.tool && buildable(c.x, c.y)) {
-      placeTile(k, S.tool); S.sel = k;
+      if (placeTile(k, S.tool)) S.sel = k;
     } else {
       S.sel = null;
       if (buildable(c.x, c.y)) toast('Drag a part onto the board, or pick one and click a cell.');
@@ -978,7 +998,7 @@
     const k = key(c.x, c.y);
     if (sol().tiles[k]) { toast('That cell already has a part.'); return; }
     if (!buildable(c.x, c.y)) { toast('Parts only go on empty floor cells.'); return; }
-    placeTile(k, type);
+    if (!placeTile(k, type)) return;
     S.sel = k;
     renderInspector();
     draw();
@@ -1227,11 +1247,16 @@
   const hitBoth = (L, best) => !!best && best.cost <= L.par.cost && best.ticks <= L.par.ticks
     && (L.par.area == null || (best.area != null && best.area <= L.par.area));
   const groupOf = (L) => L.group || 'Routing';
-  // Levels are grouped (Workshop first); numbering runs within each group.
+  // Levels are grouped, newest first; numbering runs within each group.
+  const GROUPS = {
+    Challenges: { chip: 'C', noun: 'Challenge', head: 'Challenges' },
+    Workshop: { chip: 'W', noun: 'Workshop', head: 'Workshop <span class="exp">experiment</span>' },
+    Routing: { chip: '', noun: 'Level', head: 'Routing' },
+  };
   function levelLabel(i) {
     const L = LEVELS[i], same = LEVELS.filter((x) => groupOf(x) === groupOf(L));
-    const n = same.indexOf(L) + 1;
-    return { n, count: same.length, chip: groupOf(L) === 'Workshop' ? 'W' + n : String(n).padStart(2, '0') };
+    const n = same.indexOf(L) + 1, g = GROUPS[groupOf(L)];
+    return { n, count: same.length, chip: g.chip ? g.chip + n : String(n).padStart(2, '0') };
   }
   // Parts a level introduces: in its tools but in no earlier level's.
   function newPartsFor(i) {
@@ -1249,10 +1274,10 @@
       const lab = levelLabel(i);
       return `<button class="lvl" data-i="${i}" title="${esc(L.name)}" aria-label="${groupOf(L)} ${lab.n}: ${esc(L.name)}${status}" aria-current="${i === S.levelIdx}">${lab.chip}${mark}</button>`;
     };
-    const groups = ['Workshop', 'Routing'].map((g) => ({ g, items: LEVELS.map((L, i) => ({ L, i })).filter((x) => groupOf(x.L) === g) }))
+    const groups = Object.keys(GROUPS).map((g) => ({ g, items: LEVELS.map((L, i) => ({ L, i })).filter((x) => groupOf(x.L) === g) }))
       .filter((x) => x.items.length);
     el.innerHTML = groups.map(({ g, items }) => `
-      <div class="lvl-group"><h3>${g === 'Workshop' ? 'Workshop <span class="exp">experiment</span>' : 'Routing'}</h3>
+      <div class="lvl-group"><h3>${GROUPS[g].head}</h3>
       <div class="lvl-grid">${items.map(({ L, i }) => chipFor(L, i)).join('')}</div></div>`).join('');
     el.querySelectorAll('.lvl').forEach((b) => { b.onclick = () => { if (+b.dataset.i !== S.levelIdx) loadLevel(+b.dataset.i); }; });
   }
@@ -1273,20 +1298,27 @@
         <div class="mini" style="grid-template-columns:repeat(${p.w}, 22px)">${p.pattern.flat().map((c) => chip(c)).join('')}</div>
       </div>`).join('');
     const lab = levelLabel(S.levelIdx);
-    const inputs = C.emitters.length ? `
+    const srcs = L.sources || [], cost = TILE_DEFS.source.cost;
+    const srcNote = !L.sourceLimit ? `Place as many as you like, ${cost} each`
+      : L.sourceLimit === 1 ? (srcs.length > 1 ? `One of each, ${cost} each` : `Just one, ${cost}`)
+        : `Up to ${L.sourceLimit} of each, ${cost} each`;
+    const sections = [];
+    if (C.emitters.length) sections.push(`
       <h2>Inputs</h2>
       ${C.emitters.map((e, i) => `
         <div class="io">
           <div class="io-head"><span class="io-id">${esc(e.id)}</span><span class="io-meta">${emitterMeta(e)}</span></div>
           <div class="strip" data-emit="${i}">${e.seq.map((c) => chip(c)).join('')}${e.cycle ? '<span class="repeat">↻</span>' : ''}</div>
-        </div>`).join('')}` : `
+        </div>`).join('')}`);
+    if (srcs.length) sections.push(`
       <h2>Sources</h2>
-      <div class="io"><div class="strip">${(L.sources || []).map((c) => chip(c)).join('')}</div>
-        <span class="io-meta">Place as many as you like, ${TILE_DEFS.source.cost} each</span></div>
-      ${(L.recipes || []).length ? `<div style="height:14px"></div><h2>Recipes</h2>
-      <div class="recipes">${L.recipes.map(([a, b, out]) => `<div class="recipe">${chip(a)}<span>+</span>${chip(b)}<span>→</span>${chip(out)}</div>`).join('')}</div>` : ''}`;
+      <div class="io"><div class="strip">${srcs.map((c) => chip(c)).join('')}</div>
+        <span class="io-meta">${srcNote}</span></div>`);
+    if ((L.recipes || []).length) sections.push(`<h2>Recipes</h2>
+      <div class="recipes">${L.recipes.map(([a, b, out]) => `<div class="recipe">${chip(a)}<span>+</span>${chip(b)}<span>→</span>${chip(out)}</div>`).join('')}</div>`);
+    const inputs = sections.join('<div style="height:14px"></div>');
     $('#levelInfo').innerHTML = `
-      <p class="eyebrow">${groupOf(L) === 'Workshop' ? 'Workshop' : 'Level'} ${lab.n} of ${lab.count}</p>
+      <p class="eyebrow">${GROUPS[groupOf(L)].noun} ${lab.n} of ${lab.count}${L.difficulty ? ` · ${esc(L.difficulty)}` : ''}</p>
       <h1>${esc(L.name)}</h1>
       <p class="brief-text">${esc(L.brief)}</p>
       ${(() => { const np = newPartsFor(S.levelIdx); return np.length ? `<p class="newparts">New: ${np.map((t) => TILE_DEFS[t].name).join(', ')}</p>` : ''; })()}
@@ -1317,12 +1349,15 @@
         <div class="stat"><span class="stat-k">Ticks</span><span class="stat-v">${ticks == null ? '—' : ticks}</span></div>
         ${hasArea ? `<div class="stat" title="Open cells your machine uses: parts plus every cell a block passes through"><span class="stat-k">Area</span><span class="stat-v">${area == null ? '—' : area}</span></div>` : ''}
       </div>
-      <div class="targets" title="The best machines found so far. Each target may come from a different machine.">
+      ${groupOf(L) === 'Challenges' && !best
+        // Target numbers say a lot about a machine's makeup, so challenges keep them hidden until a first solve.
+        ? `<div class="targets"><span class="tlabel">Targets</span><span class="tnote">shown after your first solve</span></div>`
+        : `<div class="targets" title="The best machines found so far. Each target may come from a different machine.">
         <span class="tlabel">Targets</span>
         <span class="pill${okC ? ' ok' : ''}">${okC ? tick : ''}Cost ${L.par.cost}</span>
         <span class="pill${okT ? ' ok' : ''}">${okT ? tick : ''}${L.par.ticks} ticks</span>
         ${hasArea ? `<span class="pill${okA ? ' ok' : ''}">${okA ? tick : ''}Area ${L.par.area}</span>` : ''}
-      </div>
+      </div>`}
       <div class="best">${best ? `Your best: cost ${best.cost} · ${best.ticks} ticks${hasArea && best.area != null ? ` · area ${best.area}` : ''}` : 'Not solved yet'}</div>
       <div style="height:12px"></div>
       <div class="actions">
@@ -1457,7 +1492,8 @@
       let fields = '';
       if (t.dir) fields += `<div class="field"><span class="flabel">Heading</span><div class="seg" data-prop="dir">${DIR_ORDER.map((d) => `<button data-v="${d}" aria-pressed="${t.dir === d}" aria-label="${d}">${ARROWS[d]}</button>`).join('')}</div></div>`;
       const symChoices = t.type === 'source' ? (level().sources || []) : syms;
-      if (t.sym != null) fields += `<div class="field"><span class="flabel">Symbol</span><div class="seg" data-prop="sym">${symChoices.map((c) => `<button class="chip-btn" style="background:${symColor(c)}" data-v="${esc(c)}" aria-pressed="${t.sym === c}">${esc(c)}</button>`).join('')}</div></div>`;
+      const symTaken = (c) => t.type === 'source' && c !== t.sym && !symAvailable(c, k);
+      if (t.sym != null) fields += `<div class="field"><span class="flabel">Symbol</span><div class="seg" data-prop="sym">${symChoices.map((c) => `<button class="chip-btn" style="background:${symColor(c)}" data-v="${esc(c)}" aria-pressed="${t.sym === c}"${symTaken(c) ? ` disabled title="There's already a ${esc(c)} source"` : ''}>${esc(c)}</button>`).join('')}</div></div>`;
       if (t.type === 'join') {
         fields += `<div class="field"><span class="flabel">Makes</span><div class="seg" data-prop="out">${(level().recipes || []).map(([a, b, out]) => `<button data-v="${esc(out)}" aria-pressed="${t.out === out}">${esc(a)} + ${esc(b)} → ${esc(out)}</button>`).join('')}</div></div>`;
       }

@@ -72,6 +72,30 @@ const BEST = {
     },
     links: [{ from: '3,3', to: '4,3' }, { from: '11,3', to: '13,4' }],
   }],
+
+  /* SPOILERS from here to the end of BEST: best known machines for the challenges. */
+  'call-and-response': [{
+    tiles: { '7,4': src('B', 'E'), '8,4': { type: 'toggle' }, '9,4': join('E', 'E'), '9,3': src('C', 'S'), '10,4': join('D', 'E'), '10,3': src('A', 'S') },
+    links: [{ from: '8,4', to: '9,3' }, { from: '8,4', to: '10,3' }],
+  }],
+  'matchmaker': [{
+    tiles: { '4,4': { type: 'presence' }, '5,4': { type: 'kind', sym: 'B' }, '7,2': src('X', 'S'), '7,3': R('E'), '8,3': R('S'), '7,4': join('D', 'E'), '8,4': join('E', 'E') },
+    links: [{ from: '4,4', to: '7,2' }, { from: '5,4', to: '7,3' }],
+  }],
+  'two-step': [{
+    tiles: {
+      '4,4': src('B', 'E'), '5,4': { type: 'toggle' }, '6,4': R('N'), '6,3': R('E'), '8,3': R('S'), '8,4': R('E'), '7,4': { type: 'toggle' },
+      '9,4': join('D', 'E'), '9,3': src('A', 'S'), '10,4': join('E', 'E'), '10,0': src('C', 'S'),
+    },
+    links: [{ from: '5,4', to: '6,4' }, { from: '7,4', to: '9,3' }, { from: '7,4', to: '10,0' }],
+  }],
+  'waltz': [{
+    tiles: {
+      '5,4': src('A', 'E'), '7,0': src('C', 'S'), '7,1': { type: 'gate' }, '7,2': { type: 'presence' }, '7,3': { type: 'presence' },
+      '7,4': join('E', 'E'), '8,4': { type: 'kind', sym: 'A' }, '10,4': join('D', 'E'), '10,3': src('B', 'S'),
+    },
+    links: [{ from: '7,2', to: '7,1' }, { from: '7,3', to: '7,1' }, { from: '8,4', to: '10,3' }],
+  }],
 };
 for (const L of S.LEVELS) {
   const results = [L.ref].concat(BEST[L.id] || []).map((sol) => runAll(L, sol));
@@ -108,6 +132,27 @@ for (const L of S.LEVELS) {
   const L = byId('bakery');
   noWin('bakery with C in both columns', L, {
     tiles: { '11,3': join('C', 'S'), '10,3': src('A', 'E'), '11,2': src('B', 'S'), '12,3': join('C', 'S'), '12,2': src('B', 'S'), '13,3': src('A', 'W') }, links: [],
+  });
+}
+
+// Challenges: one source per symbol, and the obvious shortcuts fail. (Spoilers.)
+{
+  const L = byId('call-and-response');
+  noWin('call-and-response with two B sources', L, { tiles: { '0,4': src('B', 'E'), '0,5': src('B', 'E') }, links: [] });
+  noWin('call-and-response with a source of a symbol it lacks', L, { tiles: { '0,4': src('D', 'E') }, links: [] });
+  noWin('call-and-response with every B going to D', L, { tiles: { '0,4': src('B', 'E'), '3,3': src('A', 'S'), '3,4': join('D', 'E') }, links: [] });
+  noWin('two-step with the alternating machine', byId('two-step'), BEST['call-and-response'][0]);
+  noWin('matchmaker sorting by filter onto one shared X line', byId('matchmaker'), {
+    tiles: {
+      '2,4': { type: 'filter', sym: 'A', dir: 'N' }, '3,4': R('S'), '2,3': R('N'), '2,2': R('E'), '3,5': R('S'), '3,6': R('E'),
+      '5,0': src('X', 'S'), '5,2': join('D', 'E'), '5,6': join('E', 'E'), '5,7': { type: 'drain' },
+      '8,2': R('S'), '8,3': R('S'), '8,4': R('E'), '8,6': R('N'), '8,5': R('N'),
+    },
+    links: [],
+  });
+  noWin('waltz with one toggle feeding both partners', byId('waltz'), {
+    tiles: { '7,4': src('A', 'E'), '8,4': { type: 'toggle' }, '9,4': join('E', 'E'), '9,3': src('C', 'S'), '10,4': join('D', 'E'), '10,3': src('B', 'S') },
+    links: [{ from: '8,4', to: '9,3' }, { from: '8,4', to: '10,3' }],
   });
 }
 

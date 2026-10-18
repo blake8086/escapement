@@ -36,6 +36,10 @@ const isActuatorType = (t) => !!TILE_DEFS[t] && TILE_DEFS[t].family === 'actuato
    so meeting both at once can be harder than meeting each. test.js proves every
    reference and target machine. */
 const R = (dir) => ({ type: 'redirect', dir });
+const SRC = (sym, dir) => ({ type: 'source', sym, dir });
+const JOIN = (out, dir) => ({ type: 'join', out, dir });
+// Every part except the clock: the challenges all offer the same kit.
+const KIT = ['source', 'join', 'redirect', 'gate', 'filter', 'drain', 'presence', 'kind', 'toggle'];
 const LEVELS = [
   {
     id: 'first-turn', name: 'First Turn', w: 7, h: 5,
@@ -237,6 +241,74 @@ const LEVELS = [
         '12,4': { type: 'join', out: 'D', dir: 'S' }, '13,6': { type: 'source', sym: 'A', dir: 'N' }, '13,4': R('W'),
       },
       links: [],
+    },
+  },
+
+  /* ---------- Challenges ----------
+     Goal-only puzzles: the brief says what to make and nothing about how.
+     SPOILERS: each ref below is a complete working machine. */
+  {
+    id: 'call-and-response', name: 'Call and Response', group: 'Challenges', difficulty: 'Medium', w: 12, h: 8,
+    brief: 'Ds and Es, taking turns, starting with a D.',
+    tools: KIT, sourceLimit: 1,
+    sources: ['A', 'B', 'C'], recipes: [['A', 'B', 'D'], ['B', 'C', 'E']],
+    ports: [{ id: 'O1', x: 11, y: 4, expect: 'DEDEDEDE' }],
+    par: { cost: 26, ticks: 12, area: 6 },
+    ref: {
+      tiles: {
+        '0,4': SRC('B', 'E'), '1,4': { type: 'toggle' }, '2,4': R('N'), '2,3': R('E'), '3,3': { type: 'presence' },
+        '5,3': JOIN('D', 'E'), '5,2': SRC('A', 'S'), '3,4': { type: 'presence' }, '5,4': JOIN('E', 'E'), '5,5': SRC('C', 'N'),
+        '8,3': R('S'), '8,4': R('E'), '6,4': R('S'), '6,5': R('E'), '7,5': R('N'), '7,4': R('E'),
+      },
+      links: [{ from: '1,4', to: '2,4' }, { from: '3,3', to: '5,2' }, { from: '3,4', to: '5,5' }],
+    },
+  },
+  {
+    id: 'matchmaker', name: 'Matchmaker', group: 'Challenges', difficulty: 'Medium', w: 12, h: 8,
+    brief: 'Each A that comes in should leave as a D, and each B as an E, in the order they arrived. One machine has to pass both tests.',
+    tools: KIT, sourceLimit: 1,
+    sources: ['X'], recipes: [['A', 'X', 'D'], ['B', 'X', 'E']],
+    emitters: [{ id: 'E1', x: 0, y: 4, dir: 'E', period: 2, seq: 'AABABBBA' }],
+    ports: [{ id: 'O1', x: 11, y: 4, expect: 'DDEDEEED' }],
+    tests: [{}, { emit: { E1: 'BABBAAAB' }, expect: { O1: 'EDEEDDDE' } }],
+    par: { cost: 21, ticks: 26, area: 13 },
+    ref: {
+      tiles: {
+        '3,4': { type: 'presence' }, '4,4': { type: 'kind', sym: 'B' }, '7,1': SRC('X', 'S'), '7,2': R('E'), '8,2': R('S'),
+        '7,4': JOIN('D', 'E'), '8,4': JOIN('E', 'E'),
+      },
+      links: [{ from: '3,4', to: '7,1' }, { from: '4,4', to: '7,2' }],
+    },
+  },
+  {
+    id: 'two-step', name: 'Two-Step', group: 'Challenges', difficulty: 'Very difficult', w: 12, h: 8,
+    brief: 'Two Ds, then two Es, then the same again.',
+    tools: KIT, sourceLimit: 1,
+    sources: ['A', 'B', 'C'], recipes: [['A', 'B', 'D'], ['B', 'C', 'E']],
+    ports: [{ id: 'O1', x: 11, y: 4, expect: 'DDEEDDEE' }],
+    par: { cost: 36, ticks: 16, area: 15 },
+    ref: {
+      tiles: {
+        '0,4': SRC('B', 'E'), '1,4': { type: 'toggle' }, '2,4': R('N'), '2,3': R('E'), '3,3': { type: 'toggle' }, '4,3': R('S'), '4,4': R('E'),
+        '6,4': R('S'), '7,4': R('N'), '7,3': R('E'), '8,3': { type: 'presence' }, '10,3': JOIN('D', 'S'), '10,2': SRC('A', 'S'),
+        '6,5': R('E'), '8,5': { type: 'presence' }, '10,5': JOIN('E', 'N'), '10,6': SRC('C', 'N'), '10,4': R('E'),
+      },
+      links: [{ from: '1,4', to: '2,4' }, { from: '3,3', to: '6,4' }, { from: '8,3', to: '10,2' }, { from: '8,5', to: '10,6' }],
+    },
+  },
+  {
+    id: 'waltz', name: 'Waltz', group: 'Challenges', difficulty: 'Very difficult', w: 12, h: 8,
+    brief: 'Two Ds and then an E, three times over.',
+    tools: KIT, sourceLimit: 1,
+    sources: ['A', 'B', 'C'], recipes: [['A', 'B', 'D'], ['A', 'C', 'E']],
+    ports: [{ id: 'O1', x: 11, y: 4, expect: 'DDEDDEDDE' }],
+    par: { cost: 33, ticks: 15, area: 11 },
+    ref: {
+      tiles: {
+        '1,3': SRC('A', 'E'), '1,1': SRC('C', 'E'), '2,1': { type: 'gate' }, '3,1': { type: 'presence' }, '4,1': { type: 'presence' },
+        '5,1': R('S'), '5,3': JOIN('E', 'S'), '5,4': R('E'), '6,3': { type: 'presence' }, '8,3': JOIN('D', 'S'), '8,2': SRC('B', 'S'), '8,4': R('E'),
+      },
+      links: [{ from: '3,1', to: '2,1' }, { from: '4,1', to: '2,1' }, { from: '6,3', to: '8,2' }],
     },
   },
 ];
@@ -564,6 +636,17 @@ function simulate(level, testIndex, sol, limitOverride) {
 
   tock(0, new Set(), new Set());
   snap('tock', 0);
+  // Levels may allow only a limited number of sources per symbol, and only their own symbols.
+  const perSym = {};
+  for (const [, t] of sourceList) perSym[t.sym] = (perSym[t.sym] || 0) + 1;
+  for (const sym of Object.keys(perSym)) {
+    if (C.sources.length && !C.sources.includes(sym)) {
+      return { frames, result: { status: 'fail', t: 0, msg: `This level has no ${sym} source` } };
+    }
+    if (level.sourceLimit && perSym[sym] > level.sourceLimit) {
+      return { frames, result: { status: 'fail', t: 0, msg: `Only ${level.sourceLimit === 1 ? 'one' : level.sourceLimit} ${sym} source${level.sourceLimit === 1 ? ' is' : 's are'} allowed here` } };
+    }
+  }
   let result = null, idle = 0;
   for (let t = 1; t <= limit; t++) {
     const mv = move(t);
