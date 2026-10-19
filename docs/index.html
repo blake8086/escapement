@@ -428,6 +428,9 @@ body.dragging, body.dragging * { cursor: grabbing !important; user-select: none;
 .insp-name { font-family: var(--f-display); font-weight: 800; font-size: 22px; text-transform: uppercase; letter-spacing: 0.03em; line-height: 1; }
 .insp-fam { font-size: 12px; color: var(--faint); }
 .insp-desc { margin: 10px 0 0; color: var(--muted); font-size: 13px; }
+.demo { margin: 12px 0 0; }
+.demo canvas { display: block; max-width: 100%; }
+.demo figcaption { margin-top: 6px; color: var(--faint); font-size: 12px; line-height: 1.4; }
 .fields { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
 .field { display: flex; flex-direction: column; gap: 5px; }
 .flabel { font-size: 12px; color: var(--faint); }
@@ -595,8 +598,8 @@ const TILE_DEFS = {
   join:     { family: 'static',   name: 'Join',     cost: 3, desc: 'Two blocks entering on the same tick that match its recipe fuse into the product, which leaves along its arrow. A lone block passes straight through untouched.' },
   filter:   { family: 'static',   name: 'Filter',   cost: 3, desc: 'Blocks with this symbol take this heading. Others pass straight through.' },
   drain:    { family: 'static',   name: 'Drain',    cost: 2, desc: 'Removes any block that enters.' },
-  presence: { family: 'sensor',   name: 'Presence', cost: 2, desc: 'On while any block sits on it.' },
-  kind:     { family: 'sensor',   name: 'Kind',     cost: 3, desc: 'On while a block with this symbol sits on it.' },
+  presence: { family: 'sensor',   name: 'Presence', cost: 2, desc: 'Lit while any block sits on it.' },
+  kind:     { family: 'sensor',   name: 'Kind',     cost: 3, desc: 'Lit while a block with this symbol sits on it.' },
   clock:    { family: 'sensor',   name: 'Clock',    cost: 2, desc: 'Alternates every tick: lit, dark, lit, dark.' },
   toggle:   { family: 'sensor',   name: 'Toggle',   cost: 2, desc: 'Flips between dark and lit each time a block arrives. Starts dark.' },
   redirect: { family: 'actuator', name: 'Redirect', cost: 2, desc: 'Blocks entering take this heading. Once wired, it only turns them while lit; dark, they pass straight through.' },
@@ -1704,10 +1707,11 @@ if (typeof module !== 'undefined') {
   const cxOf = (x) => geo.ox + (x + 0.5) * geo.s;
   const cyOf = (y) => geo.oy + (y + 0.5) * geo.s;
 
-  /* What the board shows at the current scrub position, interpolating between beats. */
-  function view() {
-    const fr = frames(), last = fr.length - 1;
-    let i = Math.floor(S.pos + 1e-9), f = S.pos - i;
+  /* What a board shows at a scrub position, interpolating between beats. */
+  const view = () => viewAt(frames(), S.pos);
+  function viewAt(fr, pos) {
+    const last = fr.length - 1;
+    let i = Math.floor(pos + 1e-9), f = pos - i;
     if (i >= last) { i = last; f = 0; }
     if (REDUCED) f = 0;
     const A = fr[i], B = fr[Math.min(i + 1, last)];
@@ -1761,16 +1765,17 @@ if (typeof module !== 'undefined') {
       : [];
     return { A, B, f, E, pulse, blocks, mark, pops };
   }
-  function drawPop(g) {
-    const s = geo.s, cx = cxOf(g.x), cy = cyOf(g.y), p = g.p;
-    ctx.save();
-    ctx.globalAlpha = (1 - p) * 0.9;
-    ctx.lineWidth = Math.max(1.5, s * 0.07 * (1 - p));
-    ctx.strokeStyle = g.how === 'port' ? symColor(g.sym) : COL.steelInk;
-    ctx.beginPath();
-    ctx.arc(cx, cy, s * (g.how === 'port' ? 0.26 + 0.38 * p : 0.34 - 0.24 * p), 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.restore();
+  const drawPop = (g) => drawPopAt(ctx, g, cxOf(g.x), cyOf(g.y), geo.s);
+  function drawPopAt(c, g, cx, cy, s) {
+    const p = g.p;
+    c.save();
+    c.globalAlpha = (1 - p) * 0.9;
+    c.lineWidth = Math.max(1.5, s * 0.07 * (1 - p));
+    c.strokeStyle = g.how === 'port' ? symColor(g.sym) : COL.steelInk;
+    c.beginPath();
+    c.arc(cx, cy, s * (g.how === 'port' ? 0.26 + 0.38 * p : 0.34 - 0.24 * p), 0, Math.PI * 2);
+    c.stroke();
+    c.restore();
   }
 
   function tileState(k, t, E, wired) {
@@ -1928,20 +1933,22 @@ if (typeof module !== 'undefined') {
     out.push(c[c.length - 1]);
     return out;
   }
-  function strokePoly(pts) {
-    ctx.beginPath();
-    pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-    ctx.stroke();
+  function strokePoly(pts, c) {
+    c = c || ctx;
+    c.beginPath();
+    pts.forEach(([x, y], i) => (i ? c.lineTo(x, y) : c.moveTo(x, y)));
+    c.stroke();
   }
-  function drawWire(l, lit, pulse) {
-    const s = geo.s;
-    const pts = wireCurve(trimPoints(pathPoints(l), 0.36 * s, 0.42 * s));
+  const drawWire = (l, lit, pulse) => strokeWire(ctx, pathPoints(l), geo.s, lit, pulse);
+  // A wire along cell-center points: curved corners, an arrowhead, chevrons, and a pulse while it lights.
+  function strokeWire(ctx, cellPts, s, lit, pulse) {
+    const pts = wireCurve(trimPoints(cellPts, 0.36 * s, 0.42 * s));
     ctx.save();
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     ctx.strokeStyle = lit ? COL.lit : COL.wire;
     ctx.lineWidth = Math.max(1.5, s * (lit ? 0.07 : 0.055));
     if (lit) { ctx.shadowColor = COL.lit; ctx.shadowBlur = s * 0.2; }
-    strokePoly(pts);
+    strokePoly(pts, ctx);
     ctx.shadowBlur = 0;
     // arrowhead at the actuator end
     const [x2, y2, ux, uy] = pointAlong(pts, 1), hl = s * 0.16, hw = s * 0.11;
@@ -2742,6 +2749,143 @@ if (typeof module !== 'undefined') {
     document.querySelectorAll('.part').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tool === S.tool)));
   }
 
+  /* ---------- Part demos ----------
+     Each part gets a tiny looping board, run by the real simulation, so its
+     behavior can be watched instead of only read about. Sensor demos share a
+     "probe": a stream of C blocks through a redirect the sensor is wired to,
+     so the C blocks turn down exactly while the sensor is lit. */
+  const DEMO_FROM = 12, DEMO_TO = 24, DEMO_RATE = 1.6; // loop ticks 12 to 24 (every pattern repeats in 12); ticks per second
+  const DEMOS = (() => {
+    const T = (type, more) => Object.assign({ type }, more);
+    const feed = (seq, period, y) => ({ id: 'F', x: 0, y, dir: 'E', period, seq, cycle: true });
+    const probe = {
+      '0,2': T('source', { sym: 'C', dir: 'E' }), '3,2': T('redirect', { dir: 'S' }), '3,3': T('drain'), '5,2': T('drain'),
+    };
+    const sensor = (tile, input, note) => ({
+      level: { w: 6, h: 4, emitters: input ? [input] : [] },
+      sol: { tiles: Object.assign({ '3,0': tile }, input ? { '5,0': T('drain') } : {}, probe), links: [{ from: '3,0', to: '3,2', path: [[3, 0], [3, 1], [3, 2]] }] },
+      focus: ['3,0'], note,
+    });
+    return {
+      presence: sensor(T('presence'), feed('AB', 3, 0),
+        'Lit while any block is on it, dark the rest of the time. Below, its wire switches on a redirect, so the C blocks turn down while it\'s lit.'),
+      kind: sensor(T('kind', { sym: 'A' }), feed('AB', 3, 0),
+        'Lit only while a block with its symbol (here A) is on it. A B passes without lighting it. Below, the C blocks turn down while it\'s lit.'),
+      clock: sensor(T('clock', { k: 0 }), null,
+        'Lit one tick, dark the next, forever. It needs no blocks. Below, the C blocks turn down on its lit ticks.'),
+      toggle: sensor(T('toggle'), feed('A', 3, 0),
+        'Each block that arrives flips it, and it holds that state until the next one. It starts dark. Below, the C blocks turn down while it\'s lit.'),
+      redirect: {
+        level: { w: 6, h: 4, emitters: [feed('A', 2, 1)] },
+        sol: { tiles: { '3,1': T('redirect', { dir: 'S' }), '3,3': T('drain') }, links: [] },
+        focus: ['3,1'], note: 'Every block that enters takes its heading. Once wired, it turns blocks only while lit. Pick a sensor to see that.',
+      },
+      gate: {
+        level: { w: 6, h: 4 },
+        sol: { tiles: { '0,1': T('source', { sym: 'A', dir: 'E' }), '2,1': T('gate'), '2,3': T('clock', { k: 0 }), '5,1': T('drain') }, links: [{ from: '2,3', to: '2,1', path: [[2, 3], [2, 2], [2, 1]] }] },
+        focus: ['2,1'], note: 'While lit, the block on it can\'t leave, and blocks behind it wait. Here a clock lets one through every other tick. With no wire it never lets go.',
+      },
+      source: {
+        level: { w: 6, h: 4 },
+        sol: { tiles: { '0,0': T('source', { sym: 'A', dir: 'E' }), '5,0': T('drain'), '0,2': T('source', { sym: 'B', dir: 'E' }), '1,3': T('clock', { k: 0 }), '5,2': T('drain') }, links: [{ from: '1,3', to: '0,2', path: [[1, 3], [0, 3], [0, 2]] }] },
+        focus: ['0,0', '0,2'], note: 'With no wire, it releases a block every tick its exit is clear (top). Wired, it releases only while lit (bottom, on a clock).',
+      },
+      join: {
+        level: { w: 6, h: 4, recipes: [['A', 'B', 'C']] },
+        sol: {
+          tiles: { '2,0': T('source', { sym: 'A', dir: 'S' }), '1,1': T('source', { sym: 'B', dir: 'E' }), '0,2': T('clock', { k: 0 }), '2,1': T('join', { out: 'C', dir: 'E' }), '5,1': T('drain'), '2,3': T('drain') },
+          links: [{ from: '0,2', to: '1,1', path: [[0, 2], [1, 2], [1, 1]] }],
+        },
+        focus: ['2,1'], note: 'An A and a B entering on the same tick fuse into a C, which leaves along its arrow. Here B only comes every other tick, so the A that arrives alone passes straight through.',
+      },
+      filter: {
+        level: { w: 6, h: 4, emitters: [feed('AB', 2, 1)] },
+        sol: { tiles: { '3,1': T('filter', { sym: 'A', dir: 'S' }), '3,3': T('drain'), '5,1': T('drain') }, links: [] },
+        focus: ['3,1'], note: 'Blocks with its symbol (here A) take its heading. Everything else passes straight through.',
+      },
+      drain: {
+        level: { w: 6, h: 4, emitters: [feed('AB', 2, 1)] },
+        sol: { tiles: { '4,1': T('drain') }, links: [] },
+        focus: ['4,1'], note: 'Any block that enters is removed.',
+      },
+    };
+  })();
+  const demoRuns = {};
+  function demoRun(type) {
+    if (demoRuns[type]) return demoRuns[type];
+    const d = DEMOS[type];
+    if (!d) return null;
+    const level = Object.assign({ id: 'demo-' + type, name: type, tools: [] }, d.level);
+    const C = compileLevel(level, {});
+    const run = { d, C, level, frames: simulate(level, 0, d.sol, DEMO_TO + 2).frames, links: validLinks(C, d.sol) };
+    run.wired = new Set(run.links.map((l) => l.to));
+    return (demoRuns[type] = run);
+  }
+  let demo = null, demoLooping = false; // demo: { cv, run, pos, last }
+  function mountDemo(type) {
+    const cv = $('#demoCv'), run = cv && demoRun(type);
+    if (!run) { demo = null; return; }
+    // Re-rendering the panel for the same part keeps the loop where it was.
+    const keep = demo && demo.run === run ? demo.pos : 2 * DEMO_FROM;
+    demo = { cv, run, pos: keep, last: null };
+    paintDemo();
+    if (!REDUCED && !demoLooping) { demoLooping = true; requestAnimationFrame(demoLoop); }
+  }
+  function demoLoop(now) {
+    if (!demo || !demo.cv.isConnected) { demo = null; demoLooping = false; return; }
+    if (demo.last == null) demo.last = now;
+    const dt = Math.min(0.1, Math.max(0, (now - demo.last) / 1000));
+    demo.last = now;
+    const a = 2 * DEMO_FROM, span = 2 * (DEMO_TO - DEMO_FROM);
+    demo.pos = a + ((demo.pos - a + dt * DEMO_RATE * 2) % span);
+    paintDemo();
+    requestAnimationFrame(demoLoop);
+  }
+  function paintDemo() {
+    const { cv, run, pos } = demo, L = run.level;
+    const width = cv.parentElement.clientWidth || 220, pad = 5;
+    const s = Math.min(40, Math.floor((width - pad * 2) / L.w));
+    const w = L.w * s + pad * 2, h = L.h * s + pad * 2, d = window.devicePixelRatio || 1;
+    if (cv.width !== Math.round(w * d) || cv.height !== Math.round(h * d)) {
+      cv.width = Math.round(w * d); cv.height = Math.round(h * d);
+      cv.style.width = w + 'px'; cv.style.height = h + 'px';
+    }
+    const c = cv.getContext('2d');
+    c.setTransform(d, 0, 0, d, 0, 0);
+    c.clearRect(0, 0, w, h);
+    const X = (x) => pad + (x + 0.5) * s, Y = (y) => pad + (y + 0.5) * s;
+    const V = viewAt(run.frames, pos);
+    rr(c, 0, 0, w, h, 10); c.fillStyle = COL.board; c.fill();
+    for (let y = 0; y < L.h; y++) for (let x = 0; x < L.w; x++) {
+      rr(c, pad + x * s + 1.5, pad + y * s + 1.5, s - 3, s - 3, Math.min(6, s * 0.1));
+      c.fillStyle = COL.cell; c.fill();
+    }
+    // Feeders: the level's own emitters, drawn as in the levels but without labels.
+    run.C.emitters.forEach((e, i) => {
+      const cx = X(e.x), cy = Y(e.y), [dx, dy] = DIRS[e.dir];
+      rr(c, cx - 0.44 * s, cy - 0.44 * s, 0.88 * s, 0.88 * s, 0.14 * s);
+      c.fillStyle = COL.recess; c.fill(); c.lineWidth = Math.max(1, s * 0.035); c.strokeStyle = COL.brassDim; c.stroke();
+      arrowSeg(c, cx + dx * 0.26 * s, cy + dy * 0.26 * s, cx + dx * 0.47 * s, cy + dy * 0.47 * s, 0.06 * s, COL.brass);
+      miniChip(c, e.seq[V.E.emit[i] % e.seq.length], cx - dx * 0.04 * s, cy - dy * 0.04 * s, 0.32 * s);
+    });
+    for (const [k, t] of Object.entries(run.d.sol.tiles)) {
+      const [x, y] = unkey(k);
+      drawTile(c, t, X(x), Y(y), s, tileState(k, t, V.E, run.wired));
+    }
+    run.links.forEach((l, i) => strokeWire(c, l.path.map(([x, y]) => [X(x), Y(y)]), s, !!V.E.links[i], V.pulse));
+    V.blocks.forEach((b) => drawBlock(c, b, X(b.x), Y(b.y), s, b.alpha, b.outline));
+    V.pops.forEach((g) => drawPopAt(c, g, X(g.x), Y(g.y), s));
+    // Ring the part this demo is about.
+    run.d.focus.forEach((k) => {
+      const [x, y] = unkey(k);
+      rr(c, pad + x * s + 1, pad + y * s + 1, s - 2, s - 2, Math.min(8, s * 0.14));
+      c.lineWidth = 1.5; c.strokeStyle = COL.brass; c.setLineDash([3, 3]); c.stroke(); c.setLineDash([]);
+    });
+  }
+  const demoHtml = (type) => (DEMOS[type] ? `
+    <figure class="demo"><canvas id="demoCv" role="img" aria-label="${esc(TILE_DEFS[type].name)} in action"></canvas>
+    <figcaption>${esc(DEMOS[type].note)}</figcaption></figure>` : '');
+
   function renderInspector() {
     const el = $('#inspector'), s = sol(), k = S.sel;
     const t = k && s.tiles[k];
@@ -2774,8 +2918,10 @@ if (typeof module !== 'undefined') {
         <h2>Selected</h2>
         <div class="insp-head"><canvas id="inspIcon"></canvas><div><div class="insp-name">${def.name}</div><div class="insp-fam">${fam === 'static' ? 'Static tile' : fam === 'sensor' ? 'Sensor' : 'Actuator'} · cost ${def.cost}</div></div></div>
         <p class="insp-desc">${esc(def.desc)}</p>
-        <div class="fields">${fields}<button class="btn danger" id="delTile">Remove part</button></div>`;
+        <div class="fields">${fields}<button class="btn danger" id="delTile">Remove part</button></div>
+        ${demoHtml(t.type)}`;
       drawIcon($('#inspIcon'), t.type, 40, t);
+      mountDemo(t.type);
       el.querySelectorAll('.seg[data-prop] button').forEach((b) => {
         b.onclick = () => {
           const prop = b.parentElement.dataset.prop;
@@ -2804,10 +2950,13 @@ if (typeof module !== 'undefined') {
         <h2>Placing</h2>
         <div class="insp-head"><canvas id="inspIcon"></canvas><div><div class="insp-name">${def.name}</div><div class="insp-fam">cost ${def.cost}</div></div></div>
         <p class="insp-desc">${esc(def.desc)}</p>
+        ${demoHtml(S.tool)}
         <p class="hint" style="margin-top:8px">Click an empty cell, or drag the part onto the board.${['filter', 'redirect', 'source', 'join'].includes(S.tool) ? ` It will face ${ARROWS[S.placeDir]}. Press <kbd>R</kbd> to rotate.` : ''} <kbd>Esc</kbd> puts the part down.</p>`;
       drawIcon($('#inspIcon'), S.tool, 40, ['filter', 'redirect', 'source', 'join'].includes(S.tool) ? { dir: S.placeDir } : null);
+      mountDemo(S.tool);
     } else {
-      el.innerHTML = '<h2>Selected</h2><p class="hint">Nothing selected. Click a part on the board to edit it, or click a sensor to start wiring.</p>';
+      el.innerHTML = '<h2>Selected</h2><p class="hint">Nothing selected. Click a part on the board to edit it, or click a sensor to start wiring. Pick a part from the list above to watch it work.</p>';
+      demo = null;
     }
     // keep the Undo/Clear buttons in step with the board
     const u = $('#bUndo'); if (u) u.disabled = !(S.history[level().id] || []).length;

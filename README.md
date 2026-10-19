@@ -23,6 +23,7 @@ Sound is synthesized in the page: accepted blocks chime by symbol, so a running 
 
 ## Controls
 
+- **Learn a part:** pick it from the parts list (or click one on the board) to watch a small looping demo of it, run by the real simulation.
 - **Place:** drag a part onto the board, or pick it and click a cell.
 - **Move:** drag a placed part. Drop it off the board to remove it.
 - **Wire:** click a sensor, then click actuators to connect them. Click an empty cell to stop.

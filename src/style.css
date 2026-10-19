@@ -417,6 +417,9 @@ body.dragging, body.dragging * { cursor: grabbing !important; user-select: none;
 .insp-name { font-family: var(--f-display); font-weight: 800; font-size: 22px; text-transform: uppercase; letter-spacing: 0.03em; line-height: 1; }
 .insp-fam { font-size: 12px; color: var(--faint); }
 .insp-desc { margin: 10px 0 0; color: var(--muted); font-size: 13px; }
+.demo { margin: 12px 0 0; }
+.demo canvas { display: block; max-width: 100%; }
+.demo figcaption { margin-top: 6px; color: var(--faint); font-size: 12px; line-height: 1.4; }
 .fields { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
 .field { display: flex; flex-direction: column; gap: 5px; }
 .flabel { font-size: 12px; color: var(--faint); }
